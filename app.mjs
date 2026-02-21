@@ -2,6 +2,7 @@ import experss from "express";
 import cors from "cors";
 import "dotenv/config";
 import ServiceRoute from "./routes/serviceRoute.mjs";
+import categoryRoute from "./routes/categoryRoute.mjs";
 
 const app = experss();
 const PORT = process.env.PORT || 4000;
@@ -18,6 +19,8 @@ app.use(
 );
 
 app.use("/api/services", ServiceRoute);
+app.use("/api/categories", categoryRoute);
+
 
 app.get("/test", (req, res) => {
   res.status(200).json({ message: "Hello World!" });
