@@ -1,23 +1,25 @@
-import experss from "express";
+import express from "express";
 import cors from "cors";
 import "dotenv/config";
 import ServiceRoute from "./routes/serviceRoute.mjs";
+import OrderRoute from "./routes/orderRoute.mjs";
 
-const app = experss();
+const app = express();
 const PORT = process.env.PORT || 4000;
-app.use(experss.json());
+app.use(express.json());
 app.use(
   cors({
     origin: [
-      "http://localhost:5173", // Frontend local (Vite)
-      "http://localhost:3000", // Frontend local (React แบบอื่น)// Frontend ที่ Deploy แล้ว
+      "http://localhost:5173", 
+      "http://localhost:3000", 
       "https://homeservices-frontend-gold.vercel.app",
-      // ✅ ให้เปลี่ยน https://your-frontend.vercel.app เป็น URL จริงของ Frontend ที่ deploy แล้ว
+     
     ],
   }),
 );
 
 app.use("/api/services", ServiceRoute);
+app.use("/api/orders", OrderRoute);
 
 app.get("/test", (req, res) => {
   res.status(200).json({ message: "Hello World!" });
