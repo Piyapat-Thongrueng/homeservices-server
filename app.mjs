@@ -1,12 +1,13 @@
-import experss from "express";
+import express from "express";
 import cors from "cors";
 import "dotenv/config";
-import ServiceRoute from "./routes/serviceRoute.mjs";
+// import ServiceRoute from "./routes/serviceRoute.mjs";
 import categoryRoute from "./routes/categoryRoute.mjs";
+import authRoute from "./routes/authRoute.mjs";
 
-const app = experss();
+const app = express();
 const PORT = process.env.PORT || 4000;
-app.use(experss.json());
+app.use(express.json());
 app.use(
   cors({
     origin: [
@@ -18,8 +19,9 @@ app.use(
   }),
 );
 
-app.use("/api/services", ServiceRoute);
+// app.use("/api/services", ServiceRoute);
 app.use("/api/categories", categoryRoute);
+app.use("/api/auth", authRoute);
 
 
 app.get("/test", (req, res) => {
