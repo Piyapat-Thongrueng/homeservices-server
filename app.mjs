@@ -1,6 +1,7 @@
+import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import "dotenv/config";
+
 // import ServiceRoute from "./routes/serviceRoute.mjs";
 import categoryRoute from "./routes/categoryRoute.mjs";
 import authRoute from "./routes/authRoute.mjs";

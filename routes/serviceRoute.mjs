@@ -4,10 +4,17 @@ import { createClient } from "@supabase/supabase-js";
 import multer from "multer";
 import postServiceValidate from "../middlewares/postServiceValidate.mjs";
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-);
+let supabase;
+
+const getSupabase = () => {
+  if (!supabase) {
+    supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
+  }
+  return supabase;
+};
 
 const serviceRouter = Router();
 // เก็บไฟล์รูปภาพในแรมของเซิร์ฟเวอร์ เช็คขนาดและประเภทไฟล์ก่อนอัปโหลดไปยัง Supabase Storage
@@ -170,92 +177,100 @@ serviceRouter.get("/:id", async (req, res) => {
   }
 });
 
+// =======================================================
 // POST /api/services - เพิ่มบริการใหม่
+// =======================================================
+
 serviceRouter.post(
   "/",
   imageFileUpload,
   postServiceValidate,
   async (req, res) => {
-    let createdServiceId = null; // ตัวแปรเก็บ ID ของบริการที่ถูกสร้างขึ้นใหม่
+    let createdServiceId = null;
 
     try {
-      // 1) รับข้อมูลจาก request body และไฟล์ที่อัปโหลด
+      const supabase = getSupabase();
+
       const { name, category_id, description } = req.body;
-      const items = req.parsedItems; // ได้มาจาก middleware postServiceValidate ที่แปลง JSON string เป็น object แล้ว
-      const file = req.files.imageFile[0];
-      // 2) กำหนด bucket และ path ที่จะเก็บไฟล์ใน Supabase
-      const bucketName = "services-image";
-      const fileExt = file.originalname.split(".").pop(); // ดึงนามสกุล เช่น "jpg"
-      const filePath = `services/${Date.now()}.${fileExt}`;
-      // 3) อัปโหลดไฟล์ไปยัง Supabase Storage
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from(bucketName)
-        .upload(filePath, file.buffer, {
-          contentType: file.mimetype,
-          upsert: false, // ป้องกันการเขียนทับไฟล์เดิม
+      const items = req.parsedItems;
+
+      if (!req.files?.imageFile?.[0]) {
+        return res.status(400).json({
+          error: "Image file is required",
         });
-      if (uploadError) {
-        throw uploadError;
       }
-      // 4) ดึง URL สาธารณะของไฟล์ที่อัปโหลด
+
+      const file = req.files.imageFile[0];
+
+      const bucketName = "services-image";
+      const fileExt = file.originalname.split(".").pop();
+      const filePath = `services/${Date.now()}.${fileExt}`;
+
+      const { data: uploadData, error: uploadError } =
+        await supabase.storage
+          .from(bucketName)
+          .upload(filePath, file.buffer, {
+            contentType: file.mimetype,
+            upsert: false,
+          });
+
+      if (uploadError) throw uploadError;
+
       const {
         data: { publicUrl },
-      } = supabase.storage.from(bucketName).getPublicUrl(uploadData.path);
-      // 5) บันทึกข้อมูลโพสต์ลงในฐานข้อมูล
+      } = supabase.storage
+        .from(bucketName)
+        .getPublicUrl(uploadData.path);
+
       const serviceResult = await connectionPool.query(
-        `INSERT INTO services (name, category_id, description, image) VALUES ($1, $2, $3, $4) RETURNING *`,
+        `INSERT INTO services (name, category_id, description, image)
+         VALUES ($1,$2,$3,$4) RETURNING *`,
         [
           name.trim(),
           Number(category_id),
           description ? description.trim() : null,
           publicUrl,
-        ],
+        ]
       );
-      const newService = serviceResult.rows[0];
-      createdServiceId = newService.id; // เก็บ ID ของบริการที่ถูกสร้างขึ้นใหม่
 
-      // เตรียมข้อมูลสำหรับการบันทึก service_items โดยใช้ createdServiceId แทน service_id ที่รับมาจาก client ซึ่งอาจไม่ถูกต้องหรือไม่มีอยู่จริง
+      const newService = serviceResult.rows[0];
+      createdServiceId = newService.id;
+
       const values = [];
       const placeholders = items.map((item, index) => {
-        const offset = index * 4; // จำนวนคอลัมน์ต่อแถว
+        const offset = index * 4;
+
         values.push(
-          createdServiceId, // ใช้ ID ของบริการที่ถูกสร้างขึ้นใหม่
+          createdServiceId,
           item.name.trim(),
           Number(item.price_per_unit),
-          item.unit.trim(),
+          item.unit.trim()
         );
+
         return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4})`;
       });
-      try {
-        const itemsResult = await connectionPool.query(
-          `INSERT INTO service_items (service_id, name, price_per_unit, unit)
-     VALUES ${placeholders.join(", ")}
-     RETURNING *`,
-          values,
-        );
-        res.status(201).json({
-          success: true,
-          message: "สร้างบริการสำเร็จ",
-          data: {
-            ...newService,
-            items: itemsResult.rows,
-          },
-        });
-      } catch (itemsError) {
-        console.error(
-          "Error inserting service items, rolling back:",
-          itemsError,
-        );
-        await connectionPool.query(`DELETE FROM services WHERE id = $1`, [
-          createdServiceId,
-        ]);
-        throw itemsError;
-      }
+
+      const itemsResult = await connectionPool.query(
+        `INSERT INTO service_items
+         (service_id, name, price_per_unit, unit)
+         VALUES ${placeholders.join(", ")}
+         RETURNING *`,
+        values
+      );
+
+      res.status(201).json({
+        success: true,
+        message: "สร้างบริการสำเร็จ",
+        data: {
+          ...newService,
+          items: itemsResult.rows,
+        },
+      });
     } catch (error) {
       console.error("Error creating service:", error);
       res.status(500).json({ error: "Internal Server Error" });
     }
-  },
+  }
 );
 
 // PUT /api/services/:id - อัปเดตบริการตาม ID
@@ -264,6 +279,9 @@ serviceRouter.put("/:id", imageFileUpload, async (req, res) => {
   let parsedItems = null;
 
   try {
+
+    const supabase = getSupabase();
+
     const { name, category_id, description, items } = req.body;
     // items เป็น optional สำหรับ PUT แต่ถ้าส่งมาต้องถูกต้อง
     if (items) {

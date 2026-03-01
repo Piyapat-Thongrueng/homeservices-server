@@ -1,49 +1,118 @@
-import bcrypt from "bcrypt";
+import { createClient } from "@supabase/supabase-js";
 import connectionPool from "../utils/db.mjs";
+
+let supabase;
+
+// =======================================================
+// CREATE SUPABASE CLIENT (singleton)
+// =======================================================
+
+const getSupabase = () => {
+  if (!supabase) {
+    supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
+  }
+  return supabase;
+};
+
+// =======================================================
+// REGISTER USER
+// =======================================================
 
 export const registerUser = async (req, res) => {
   try {
-    const { email, username, password } = req.body;
 
-    // ✅ validation
-    if (!email || !username || !password) {
-      return res.status(400).json({
-        error: "Missing required fields",
+    const { email, password, username, phone } = req.body;
+
+    const supabase = getSupabase();
+
+    const { data, error } =
+      await supabase.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
       });
+
+    if (error) {
+      return res.status(400).json({ error: error.message });
     }
 
-    // ✅ check email exists
-    const existingUser = await connectionPool.query(
-      "SELECT id FROM users WHERE email = $1",
-      [email]
+    const userId = data.user.id;
+
+    await connectionPool.query(
+      `
+      INSERT INTO users (id, username, phone)
+      VALUES ($1,$2,$3)
+      `,
+      [userId, username, phone]
     );
 
-    if (existingUser.rows.length > 0) {
-      return res.status(400).json({
-        error: "Email already exists",
+    res.status(201).json({
+      message: "Register success",
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Register failed" });
+  }
+};
+
+// =======================================================
+// GOOGLE OAUTH
+// =======================================================
+
+export const googleOAuth = async (req, res) => {
+  try {
+
+    const supabase = getSupabase();
+
+    const { data, error } =
+      await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: process.env.OAUTH_REDIRECT_URL,
+        },
       });
+
+    if (error) {
+      return res.status(500).json(error);
     }
 
- // ✅ hash password
-const saltRounds = 10;
-const hashedPassword = await bcrypt.hash(password, saltRounds);
+    return res.redirect(data.url);
 
-// ✅ insert user
-await connectionPool.query(
-  `INSERT INTO users (email, username, password_hash)
-   VALUES ($1, $2, $3)`,
-  [email, username, hashedPassword]
-);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "OAuth failed" });
+  }
+};
 
-    return res.status(201).json({
-      message: "Register success ✅",
-    });
+// =======================================================
+// FACEBOOK OAUTH
+// =======================================================
 
-  } catch (error) {
-    console.error(error);
+export const facebookOAuth = async (req, res) => {
+  try {
 
-    return res.status(500).json({
-      error: "Server error",
-    });
+    const supabase = getSupabase();
+
+    const { data, error } =
+      await supabase.auth.signInWithOAuth({
+        provider: "facebook",
+        options: {
+          redirectTo: process.env.OAUTH_REDIRECT_URL,
+        },
+      });
+
+    if (error) {
+      return res.status(500).json(error);
+    }
+
+    return res.redirect(data.url);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "OAuth failed" });
   }
 };
