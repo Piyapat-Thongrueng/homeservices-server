@@ -14,16 +14,17 @@ router.get('/my-orders/:userId', async (req, res) => {
         o.id, 
         o.status, 
         o.created_at as date, 
-        o.net_price as price, 
+        o.total_price as price,  --  ใน public.txt คุณใช้คำว่า total_price นะครับ ไม่ใช่ net_price
         tp.full_name as worker,
         array_agg(s.name) as details
       FROM orders o
+      INNER JOIN users u ON o.user_id = u.id -- 1. เพิ่มบรรทัดนี้เพื่อเชื่อมตาราง users
       LEFT JOIN technician_assignments ta ON o.id = ta.order_id
       LEFT JOIN user_profiles tp ON ta.technician_id = tp.user_id
       LEFT JOIN order_items oi ON o.id = oi.order_id
       LEFT JOIN services s ON oi.service_id = s.id
-      WHERE o.user_id = $1
-      GROUP BY o.id, o.status, o.created_at, o.net_price, tp.full_name
+      WHERE u.auth_user_id = $1              -- 2. เปลี่ยนมาเทียบกับ auth_user_id แทน
+      GROUP BY o.id, o.status, o.created_at, o.total_price, tp.full_name
       ORDER BY o.created_at DESC;
     `;
 
