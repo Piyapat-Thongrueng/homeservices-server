@@ -52,6 +52,16 @@ router.get('/my-orders/:userId', async (req, res) => {
   }
 });
 
+router.get('/', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM orders ORDER BY created_at DESC');
+    res.json(result.rows);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูล' });
+  }
+});
+
  // #บรรทัดนี้จะต้องถูกลบเมื่อเสรร็จงาน 
 // POST /api/orders/mock - ยิงเพื่อสร้างออเดอร์จำลองสำหรับทดสอบ UI
 router.post('/mock', async (req, res) => {
