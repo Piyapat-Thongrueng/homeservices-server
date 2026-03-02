@@ -52,4 +52,68 @@ router.get('/my-orders/:userId', async (req, res) => {
   }
 });
 
+ // #บรรทัดนี้จะต้องถูกลบเมื่อเสรร็จงาน 
+// POST /api/orders/mock - ยิงเพื่อสร้างออเดอร์จำลองสำหรับทดสอบ UI
+router.post('/mock', async (req, res) => {
+  try {
+    const { auth_user_id } = req.body;
+
+    // 1. ตรวจสอบว่ามี User นี้ในตาราง public.users หรือยัง (ถ้ายัง ให้สร้างอัตโนมัติ)
+    let internalUserId;
+    const userRes = await pool.query('SELECT id FROM users WHERE auth_user_id = $1', [auth_user_id]);
+    
+    if (userRes.rows.length === 0) {
+        const newUserRes = await pool.query(
+            'INSERT INTO users (auth_user_id, email, username) VALUES ($1, $2, $3) RETURNING id',
+            [auth_user_id, `mock${Date.now()}@test.com`, `user_${Date.now()}`]
+        );
+        internalUserId = newUserRes.rows[0].id;
+    } else {
+        internalUserId = userRes.rows[0].id;
+    }
+
+    // 2. สร้างข้อมูลที่อยู่จำลอง (เพราะตาราง orders บังคับมี address_id)
+    const addrRes = await pool.query(
+      'INSERT INTO addresses (user_id, address_line) VALUES ($1, $2) RETURNING id',
+      [internalUserId, '123/45 หมู่บ้านทดสอบ ถ.สมมติ']
+    );
+    const addressId = addrRes.rows[0].id;
+
+    // 3. สร้างหมวดหมู่และบริการจำลองเพื่อเอาไปแสดงผล
+    const catRes = await pool.query(
+      'INSERT INTO categories (name, name_th) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET name=EXCLUDED.name RETURNING id',
+      ['Air Condition (Mock)', 'แอร์บ้าน (จำลอง)']
+    );
+    const catId = catRes.rows[0].id;
+
+    const srvRes = await pool.query(
+      'INSERT INTO services (category_id, name, price) VALUES ($1, $2, $3) RETURNING id',
+      [catId, 'ล้างแอร์ติดผนัง', 500]
+    );
+    const serviceId = srvRes.rows[0].id;
+
+    // 4. สร้างใบสั่งซ่อม (Order)
+    const orderRes = await pool.query(
+      `INSERT INTO orders (user_id, address_id, status, net_price) 
+       VALUES ($1, $2, $3, $4) RETURNING id`,
+      [internalUserId, addressId, 'in_progress', 500] // ✅ เปลี่ยนเป็น in_progress
+    );
+    const orderId = orderRes.rows[0].id;
+
+    // 5. นำบริการไปใส่ในใบสั่งซ่อม (Order Items)
+    await pool.query(
+      'INSERT INTO order_items (order_id, service_id, quantity, price) VALUES ($1, $2, $3, $4)',
+      [orderId, serviceId, 1, 500]
+    );
+
+    res.status(201).json({ message: "🎉 สร้างข้อมูลออเดอร์จำลองสำเร็จ!", orderId });
+
+  } catch (error) {
+    console.error("Mock Error:", error);
+    res.status(500).json({ error: "เกิดข้อผิดพลาด: " + error.message });
+  }
+});
+
+// #บรรทัดที่ต้องถูกลบจะสุดที่ตรงนี้
+
 export default router;
