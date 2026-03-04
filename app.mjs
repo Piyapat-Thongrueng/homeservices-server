@@ -6,6 +6,7 @@ import cors from "cors";
 import categoryRoute from "./routes/categoryRoute.mjs";
 import authRoute from "./routes/authRoute.mjs";
 import OrderRoute from "./routes/orderRoute.mjs";
+import technicianHistoryRoute from "./routes/technicianHistoryRoute.mjs";
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -27,6 +28,7 @@ app.use("/api/categories", categoryRoute);
 app.use("/api/auth", authRoute);
 
 app.use("/api/orders", OrderRoute);
+app.use("/api/technician", technicianHistoryRoute);
 
 app.get("/test", (req, res) => {
   res.status(200).json({ message: "Hello World!" });
