@@ -1,6 +1,6 @@
 import pool from "../utils/db.mjs";
 
-const technicianServices = {
+const technicianProfileServices = {
   getTechnicianProfile: async (technicianId) => {
     // Query 1: get technician profile
     const profileResult = await pool.query(
@@ -112,10 +112,10 @@ const technicianServices = {
         [technicianId, ...service_ids], // ส่ง technicianId ตามด้วย service_ids เป็น parameters
       );
     }
-    return technicianServices.getTechnicianProfile(technicianId); // ส่งกลับข้อมูลโปรไฟล์ที่อัปเดตแล้ว
+    return technicianProfileServices.getTechnicianProfile(technicianId); // ส่งกลับข้อมูลโปรไฟล์ที่อัปเดตแล้ว
   },
 };
 
-export default technicianServices;
+export default technicianProfileServices;
 
 //Tips: ที่มีการ query หลายๆตัวใน updateTechnicianProfile เรียกหลักการนี้ว่า "Database Normalization" คือการแยกข้อมูลออกเป็นหลายๆตารางตามประเภทของข้อมูล เพื่อให้จัดการและอัปเดตได้ง่ายขึ้น โดยไม่ต้องซ้ำซ้อนข้อมูลในหลายๆที่

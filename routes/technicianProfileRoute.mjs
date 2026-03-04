@@ -1,16 +1,16 @@
 import express from "express";
-import technicianServices from "../services/technicianService.mjs";
+import technicianProfileServices from "../services/technicianProfileService.mjs";
 
-const technicianRouter = express.Router();
+const technicianProfileRouter = express.Router();
 
 // TODO: เปลี่ยนเป็น req.user.id หลัง authentication เสร็จ
 const TEMP_TECHNICIAN_ID = 34;
 
 // GET /api/technician/profile
-technicianRouter.get("/profile", async (req, res) => {
+technicianProfileRouter.get("/profile", async (req, res) => {
   try {
     const profile =
-      await technicianServices.getTechnicianProfile(TEMP_TECHNICIAN_ID);
+      await technicianProfileServices.getTechnicianProfile(TEMP_TECHNICIAN_ID);
     if (!profile) {
       return res.status(404).json({ message: "ไม่พบข้อมูลช่าง" });
     }
@@ -23,7 +23,7 @@ technicianRouter.get("/profile", async (req, res) => {
 });
 
 // PUT /api/technician/profile
-technicianRouter.put("/profile", async (req, res) => {
+technicianProfileRouter.put("/profile", async (req, res) => {
   try {
     const {
       first_name,
@@ -43,7 +43,7 @@ technicianRouter.put("/profile", async (req, res) => {
     // service_ids ต้องเป็น array เสมอ ถ้าไม่ส่งมาให้ใช้ array ว่าง
     const normalizedServiceIds = Array.isArray(service_ids) ? service_ids : [];
 
-    const updatedProfile = await technicianServices.updateTechnicianProfile(
+    const updatedProfile = await technicianProfileServices.updateTechnicianProfile(
       TEMP_TECHNICIAN_ID,
       {
         first_name,
@@ -66,4 +66,4 @@ technicianRouter.put("/profile", async (req, res) => {
   }
 });
 
-export default technicianRouter;
+export default technicianProfileRouter;
