@@ -27,7 +27,6 @@ app.use("/api/services", ServiceRoute);
 app.use("/api/categories", categoryRoute);
 app.use("/api/technicians", technicianProfileRoute);
 app.use("/api/auth", authRoute);
-
 app.use("/api/orders", OrderRoute);
 app.use("/api/technician", technicianHistoryRoute);
 app.use("/api/orders", orderRoute);
