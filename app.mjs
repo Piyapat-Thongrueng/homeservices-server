@@ -5,6 +5,8 @@ import ServiceRoute from "./routes/serviceRoute.mjs";
 import categoryRoute from "./routes/categoryRoute.mjs";
 import technicianProfileRoute from "./routes/technicianProfileRoute.mjs";
 import authRoute from "./routes/authRoute.mjs";
+import OrderRoute from "./routes/orderRoute.mjs";
+import technicianHistoryRoute from "./routes/technicianHistoryRoute.mjs";
 import orderRoute from "./routes/orderRoute.mjs";
 
 const app = experss();
@@ -25,6 +27,9 @@ app.use("/api/services", ServiceRoute);
 app.use("/api/categories", categoryRoute);
 app.use("/api/technicians", technicianProfileRoute);
 app.use("/api/auth", authRoute);
+
+app.use("/api/orders", OrderRoute);
+app.use("/api/technician", technicianHistoryRoute);
 app.use("/api/orders", orderRoute);
 
 app.get("/test", (req, res) => {
