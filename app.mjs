@@ -25,10 +25,9 @@ app.use(
 app.use("/api/services", ServiceRoute);
 app.use("/api/categories", categoryRoute);
 app.use("/api/auth", authRoute);
-app.use("/api/orders", OrderRoute);
+app.use("/api/orders", orderRoute);
 app.use("/api/technician", technicianHistoryRoute);
 app.use("/api/technician-profile", technicianProfileRoute);
-
 
 app.get("/test", (req, res) => {
   res.status(200).json({ message: "Hello World!" });
