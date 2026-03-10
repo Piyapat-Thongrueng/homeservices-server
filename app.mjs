@@ -17,6 +17,7 @@ app.use(
     origin: [
       "http://localhost:5173", // Frontend local (Vite)
       "http://localhost:3000", // Frontend local (React แบบอื่น)// Frontend ที่ Deploy แล้ว
+      "http://localhost:3001", // Frontend local (React แบบอื่น)// Frontend ที่ Deploy แล้ว
       "https://homeservices-frontend-gold.vercel.app",
       // ✅ ให้เปลี่ยน https://your-frontend.vercel.app เป็น URL จริงของ Frontend ที่ deploy แล้ว
     ],
@@ -25,12 +26,12 @@ app.use(
 
 app.use("/api/services", ServiceRoute);
 app.use("/api/categories", categoryRoute);
-app.use("/api/technicians", technicianProfileRoute);
 app.use("/api/auth", authRoute);
 app.use("/api/orders", orderRoute);
 app.use("/api/technician", technicianHistoryRoute);
 app.use('/api/promotions', promotionRouter);
 
+app.use("/api/technician-profile", technicianProfileRoute);
 
 app.get("/test", (req, res) => {
   res.status(200).json({ message: "Hello World!" });
