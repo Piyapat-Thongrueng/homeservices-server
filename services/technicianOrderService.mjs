@@ -67,10 +67,12 @@ const technicianOrderService = {
         await client.query("ROLLBACK");
         return { success: false, message: "งานนี้มีช่างอ่านอื่นรับไปแล้ว" };
       }
-    } catch (err) {
-      await client.query("ROLLBACK");
-      console.error("❌ รับงานล้มเหลว:", err);
+    } catch (error) {
+      await client.query("ROLLBACK"); // ถ้าเช็คมีปัญหา → rollback และแจ้ง error
+      console.error("❌ รับงานล้มเหลว:", error);
       return { success: false, message: "เกิดข้อผิดพลาดในการรับงาน" };
+    } finally {
+      client.release(); // ปล่อย connection กลับไปที่ pool
     }
   },
 };
