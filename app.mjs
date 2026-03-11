@@ -48,7 +48,9 @@ app.use("/api/technician", technicianHistoryRoute);
 app.use('/api/promotions', promotionRouter);
 app.use("/api/cart", cartRoute);
 
-app.use("/api/technician-profile", technicianProfileRoute);app.use("/api/technician", technicianPendingRoute);
+app.use("/api/technician-profile", technicianProfileRoute);
+
+app.use("/api/technician-pending", technicianPendingRoute);
 
 
 

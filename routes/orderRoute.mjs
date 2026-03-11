@@ -51,6 +51,94 @@ router.get('/my-orders/:userId', async (req, res) => {
   }
 });
 
+
+// =========================================================
+// GET Order Detail by ID
+// =========================================================
+
+router.get("/:id", async (req, res) => {
+  try {
+
+    const { id } = req.params;
+
+    const query = `
+      SELECT 
+        o.id,
+        o.status,
+        o.created_at,
+        o.total_price,
+        array_agg(s.name) FILTER (WHERE s.name IS NOT NULL) AS services
+      FROM orders o
+      LEFT JOIN order_items oi ON o.id = oi.order_id
+      LEFT JOIN services s ON oi.service_id = s.id
+      WHERE o.id = $1
+      GROUP BY o.id
+    `;
+
+    const { rows } = await pool.query(query, [id]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+
+    res.json(rows[0]);
+
+  } catch (error) {
+
+    console.error("Error fetching order detail:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+
+  }
+});
+
+
+
+
+
+
+// =========================================================
+// GET Order Detail by ID
+// =========================================================
+
+router.get("/:id", async (req, res) => {
+  try {
+
+    const { id } = req.params;
+
+    const query = `
+      SELECT 
+        o.id,
+        o.status,
+        o.created_at,
+        o.total_price,
+        array_agg(s.name) FILTER (WHERE s.name IS NOT NULL) AS services
+      FROM orders o
+      LEFT JOIN order_items oi ON o.id = oi.order_id
+      LEFT JOIN services s ON oi.service_id = s.id
+      WHERE o.id = $1
+      GROUP BY o.id
+    `;
+
+    const { rows } = await pool.query(query, [id]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+
+    res.json(rows[0]);
+
+  } catch (error) {
+
+    console.error("Error fetching order detail:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+
+  }
+});
+
+
+
+
+
 // GET /api/orders - ดึงออเดอร์ทั้งหมด
 router.get('/', async (req, res) => {
   try {
