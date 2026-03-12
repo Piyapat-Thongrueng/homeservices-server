@@ -5,13 +5,9 @@ import protectTechnician from "../middlewares/protectTechnician.mjs";
 const technicianHistoryRouter = express.Router();
 
 // GET /api/technician/history - ดึงประวัติการทำงานทั้งหมด
-// TODO: เปลี่ยนจาก params หรือ mock เป็น req.user.id หลังทำ Auth
 technicianHistoryRouter.get("/history", protectTechnician, async (req, res) => {
   try {
-    const { technicianId } = req.query; // หรือรับจาก Token
-    if (!technicianId) {
-        return res.status(400).json({ message: "Missing technicianId" });
-    }
+    const technicianId = req.user.id; // ใช้ ID จาก token ที่ผ่าน protectTechnician แล้ว
     const history = await technicianHistoryService.getTechnicianHistory(technicianId);
     res.status(200).json(history);
   } catch (error) {
