@@ -48,6 +48,8 @@ export const getTechnicianHistoryDetail = async (orderId) => {
         o.created_at AS operation_date,
         o.total_price AS total_price,
         a.address_line AS address,
+        a.latitude,
+        a.longitude,
         u.username AS customer_name,
         u.phone AS customer_phone,
         r.rating,
@@ -68,7 +70,7 @@ export const getTechnicianHistoryDetail = async (orderId) => {
       LEFT JOIN users u ON o.user_id = u.id
       LEFT JOIN reviews r ON o.id = r.order_id
       WHERE o.id = $1
-      GROUP BY o.id, c.name_th, a.address_line, u.username, u.phone, r.rating, r.comment;
+      GROUP BY o.id, c.name_th, a.address_line, a.latitude, a.longitude, u.username, u.phone, r.rating, r.comment;
     `;
 
     const result = await pool.query(query, [orderId]);
@@ -87,6 +89,8 @@ export const getTechnicianHistoryDetail = async (orderId) => {
         hour: '2-digit', minute: '2-digit' 
       }) + ' น.',
       address: row.address,
+      latitude: row.latitude ? Number(row.latitude) : null,
+      longitude: row.longitude ? Number(row.longitude) : null,
       order_code: `AD${String(row.order_id).padStart(8, '0')}`,
       total_price: Number(row.total_price).toLocaleString('th-TH', { 
         minimumFractionDigits: 2, 
