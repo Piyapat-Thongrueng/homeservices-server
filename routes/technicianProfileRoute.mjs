@@ -1,6 +1,7 @@
 import express from "express";
 import technicianProfileServices from "../services/technicianProfileService.mjs";
 import protectTechnician from "../middlewares/protectTechnician.mjs";
+import pool from "../utils/db.mjs";
 
 const technicianProfileRouter = express.Router();
 
@@ -9,8 +10,9 @@ const technicianProfileRouter = express.Router();
 // GET /api/technician/profile
 technicianProfileRouter.get("/profile", protectTechnician, async (req, res) => {
   try {
-    const profile =
-      await technicianProfileServices.getTechnicianProfile(req.user.id);
+    const profile = await technicianProfileServices.getTechnicianProfile(
+      req.user.id,
+    );
     if (!profile) {
       return res.status(404).json({ message: "ไม่พบข้อมูลช่าง" });
     }
@@ -43,9 +45,8 @@ technicianProfileRouter.put("/profile", protectTechnician, async (req, res) => {
     // service_ids ต้องเป็น array เสมอ ถ้าไม่ส่งมาให้ใช้ array ว่าง
     const normalizedServiceIds = Array.isArray(service_ids) ? service_ids : [];
 
-    const updatedProfile = await technicianProfileServices.updateTechnicianProfile(
-      req.user.id,
-      {
+    const updatedProfile =
+      await technicianProfileServices.updateTechnicianProfile(req.user.id, {
         first_name,
         last_name,
         phone,
@@ -53,8 +54,7 @@ technicianProfileRouter.put("/profile", protectTechnician, async (req, res) => {
         longitude,
         is_available,
         service_ids: normalizedServiceIds,
-      },
-    );
+      });
 
     res.status(200).json({
       message: "อัปเดตโปรไฟล์ช่างเรียบร้อยแล้ว",
@@ -65,5 +65,27 @@ technicianProfileRouter.put("/profile", protectTechnician, async (req, res) => {
     res.status(500).json({ message: "เกิดข้อผิดพลาดในการอัปเดตข้อมูลช่าง" });
   }
 });
+
+// PATCH /api/technician/profile/availability
+technicianProfileRouter.patch(
+  "/location",
+  protectTechnician,
+  async (req, res) => {
+    const { latitude, longitude } = req.body;
+    if (!latitude || !longitude) {
+      return res.status(400).json({ message: "กรุณาส่งตำแหน่งให้ครบถ้วน" });
+    }
+    await pool.query(
+      `UPDATE user_profiles
+     SET latitude = $1::numeric,
+         longitude = $2::numeric,
+         location_updated_at = NOW(),
+         updated_at = NOW()
+     WHERE user_id = $3`,
+      [latitude, longitude, req.user.id],
+    );
+    res.status(200).json({ message: "อัปเดตตำแหน่งเรียบร้อยแล้ว" });
+  },
+);
 
 export default technicianProfileRouter;

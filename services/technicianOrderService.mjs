@@ -1,6 +1,7 @@
 import pool from "../utils/db.mjs";
 
 const technicianOrderService = {
+
   // ✅ เพิ่ม radiusKm = 10 เป็น default (ถ้าไม่ส่งมา → ใช้ 10 กม.)
   getAvailableOrders: async (technicianId, radiusKm = 10) => {
     const result = await pool.query(
@@ -18,12 +19,10 @@ const technicianOrderService = {
         a.subdistrict,
         a.district,
         a.province,
-
-        -- ✅ จุดที่ 2: lat/lng ลูกค้า สำหรับส่งไป frontend แสดงแผนที่
         a.latitude AS customer_lat,
         a.longitude AS customer_lng,
 
-        -- ✅ จุดที่ 2: คำนวณระยะทาง Haversine
+        -- คำนวณระยะทาง Haversine
         -- LEAST(1.0, ...) ป้องกัน floating point error
         -- เช่น cos() คืนค่า 1.0000000002 → acos() crash
         -- LEAST บังคับให้ไม่เกิน 1.0 เสมอ
@@ -44,18 +43,17 @@ const technicianOrderService = {
       LEFT JOIN services s ON oi.service_id = s.id
       LEFT JOIN service_items si ON s.id = si.service_id
 
-      -- ✅ จุดที่ 1: JOIN user_profiles เพื่อดึง lat/lng ของช่าง
       JOIN user_profiles up ON up.user_id = $1
 
       WHERE o.status = 'completed'
 
-        -- เงื่อนไขเดิม: ยังไม่มีช่างรับ
+        -- ยังไม่มีช่างรับ
         AND NOT EXISTS (
           SELECT 1 FROM technician_assignments ta
           WHERE ta.order_id = o.id AND ta.status = 'assigned'
         )
 
-        -- เงื่อนไขเดิม: ช่างคนนี้ยังไม่ปฏิเสธ
+        -- ช่างคนนี้ยังไม่ปฏิเสธ
         AND NOT EXISTS (
           SELECT 1 FROM technician_assignments ta
           WHERE ta.order_id = o.id
@@ -63,7 +61,7 @@ const technicianOrderService = {
             AND ta.status = 'rejected'
         )
 
-        -- เงื่อนไขเดิม: กรองบริการที่ช่างรับได้
+        -- กรองบริการที่ช่างรับได้
         AND EXISTS (
           SELECT 1
           FROM order_items oi2
@@ -72,7 +70,7 @@ const technicianOrderService = {
             AND ts.technician_id = $1
         )
 
-        -- ✅ จุดที่ 3: กรอง NULL ออก ถ้าไม่มี lat/lng → คำนวณไม่ได้ → ไม่แสดง
+        -- กรอง NULL ออก ถ้าไม่มี lat/lng → คำนวณไม่ได้ → ไม่แสดง
         AND a.latitude IS NOT NULL
         AND a.longitude IS NOT NULL
         AND up.latitude IS NOT NULL
@@ -108,17 +106,12 @@ const technicianOrderService = {
       appointment_date: order.appointment_date,
       appointment_time: order.appointment_time,
       remark: order.remark,
-      address: [
-        order.address_line,
-        order.subdistrict,
-        order.district,
-        order.province,
-      ]
+      address: [order.address_line, order.subdistrict, order.district, order.province]
         .filter(Boolean)
         .join(" "),
-      customer_lat: order.customer_lat ? Number(order.customer_lat) : null, // ✅ เพิ่ม
-      customer_lng: order.customer_lng ? Number(order.customer_lng) : null, // ✅ เพิ่ม
-      distance_km: Number(order.distance_km), // ✅ เพิ่ม
+      customer_lat: order.customer_lat ? Number(order.customer_lat) : null,  // ✅ เพิ่ม
+      customer_lng: order.customer_lng ? Number(order.customer_lng) : null,  // ✅ เพิ่ม
+      distance_km: Number(order.distance_km),                                // ✅ เพิ่ม
       service_names: order.service_names.filter(Boolean),
       item_names: order.item_names.filter(Boolean),
     }));
@@ -169,3 +162,18 @@ const technicianOrderService = {
 };
 
 export default technicianOrderService;
+
+
+// ✅ getAvailableOrders
+//    - กรองบริการที่ช่างรับได้ (technician_services)
+//    - กรองงานที่ปฏิเสธไปแล้ว (rejected)
+//    - กรองรัศมี 10 กม. ด้วย Haversine
+//    - เรียงจากใกล้ไปไกล
+//    - ส่ง customer_lat, customer_lng, distance_km ไปด้วย
+
+// ✅ acceptOrder
+//    - Transaction ป้องกัน race condition
+//    - UPDATE service_status = 'in_progress'
+
+// ✅ rejectOrder
+//    - บันทึก rejected ไม่แตะ orders.status
