@@ -1,7 +1,6 @@
 import pool from "../utils/db.mjs";
 
 const technicianOrderService = {
-
   // ✅ เพิ่ม radiusKm = 10 เป็น default (ถ้าไม่ส่งมา → ใช้ 10 กม.)
   getAvailableOrders: async (technicianId, radiusKm = 10) => {
     const result = await pool.query(
@@ -16,11 +15,11 @@ const technicianOrderService = {
         o.remark,
         CONCAT('AD', LPAD(o.id::TEXT, 8, '0')) AS order_code,
         a.address_line,
-        a.subdistrict,
-        a.district,
-        a.province,
         a.latitude AS customer_lat,
         a.longitude AS customer_lng,
+
+        u.full_name AS customer_name,
+        u.phone AS customer_phone,
 
         -- คำนวณระยะทาง Haversine
         -- LEAST(1.0, ...) ป้องกัน floating point error
@@ -44,6 +43,7 @@ const technicianOrderService = {
       LEFT JOIN service_items si ON s.id = si.service_id
 
       JOIN user_profiles up ON up.user_id = $1
+      JOIN users u ON o.user_id = u.id
 
       WHERE o.status = 'completed'
 
@@ -78,9 +78,10 @@ const technicianOrderService = {
 
       GROUP BY o.id, o.status, o.net_price, o.created_at,
                o.appointment_date, o.appointment_time, o.remark,
-               a.address_line, a.subdistrict, a.district, a.province,
+               a.address_line,
                a.latitude, a.longitude,    -- ✅ เพิ่มใน GROUP BY
-               up.latitude, up.longitude   -- ✅ เพิ่มใน GROUP BY
+               up.latitude, up.longitude,   -- ✅ เพิ่มใน GROUP BY
+               u.full_name, u.phone
 
       -- ✅ จุดที่ 4: กรองเฉพาะ order ที่อยู่ในรัศมีที่กำหนด
       -- HAVING ใช้แทน WHERE สำหรับ aggregate หรือค่าที่คำนวณ
@@ -106,14 +107,14 @@ const technicianOrderService = {
       appointment_date: order.appointment_date,
       appointment_time: order.appointment_time,
       remark: order.remark,
-      address: [order.address_line, order.subdistrict, order.district, order.province]
-        .filter(Boolean)
-        .join(" "),
-      customer_lat: order.customer_lat ? Number(order.customer_lat) : null,  // ✅ เพิ่ม
-      customer_lng: order.customer_lng ? Number(order.customer_lng) : null,  // ✅ เพิ่ม
-      distance_km: Number(order.distance_km),                                // ✅ เพิ่ม
+      address: order.address_line ?? "-",
+      customer_lat: order.customer_lat ? Number(order.customer_lat) : null, // ✅ เพิ่ม
+      customer_lng: order.customer_lng ? Number(order.customer_lng) : null, // ✅ เพิ่ม
+      distance_km: Number(order.distance_km), // ✅ เพิ่ม
       service_names: order.service_names.filter(Boolean),
       item_names: order.item_names.filter(Boolean),
+      customer_name: order.customer_name ?? "-",
+      customer_phone: order.customer_phone ?? "-",
     }));
   },
 
@@ -162,7 +163,6 @@ const technicianOrderService = {
 };
 
 export default technicianOrderService;
-
 
 // ✅ getAvailableOrders
 //    - กรองบริการที่ช่างรับได้ (technician_services)

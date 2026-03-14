@@ -7,7 +7,7 @@ const technicianProfileRouter = express.Router();
 
 // TODO: เปลี่ยนเป็น req.user.id หลัง authentication เสร็จ
 
-// GET /api/technician/profile
+// GET /api/technician-profile/profile
 technicianProfileRouter.get("/profile", protectTechnician, async (req, res) => {
   try {
     const profile = await technicianProfileServices.getTechnicianProfile(
@@ -24,7 +24,7 @@ technicianProfileRouter.get("/profile", protectTechnician, async (req, res) => {
   }
 });
 
-// PUT /api/technician/profile
+// PUT /api/technician-profile/profile
 technicianProfileRouter.put("/profile", protectTechnician, async (req, res) => {
   try {
     const {
@@ -66,7 +66,7 @@ technicianProfileRouter.put("/profile", protectTechnician, async (req, res) => {
   }
 });
 
-// PATCH /api/technician/profile/availability
+// PATCH /api/technician-profile/location
 technicianProfileRouter.patch(
   "/location",
   protectTechnician,
@@ -85,6 +85,24 @@ technicianProfileRouter.patch(
       [latitude, longitude, req.user.id],
     );
     res.status(200).json({ message: "อัปเดตตำแหน่งเรียบร้อยแล้ว" });
+  },
+);
+
+// PATCH /api/technician-profile/availability
+technicianProfileRouter.patch(
+  "/availability",
+  protectTechnician,
+  async (req, res) => {
+    const { is_available } = req.body;
+    if (typeof is_available !== "boolean") {
+      return res.status(400).json({ message: "กรุณาส่งสถานะให้ถูกต้อง" });
+    }
+    await pool.query(
+      `UPDATE user_profiles SET is_available = $1, updated_at = NOW()
+       WHERE user_id = $2`,
+      [is_available, req.user.id],
+    );
+    res.status(200).json({ message: "อัปเดตสถานะเรียบร้อยแล้ว" });
   },
 );
 
