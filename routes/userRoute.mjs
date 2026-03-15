@@ -4,134 +4,152 @@ import multer from 'multer';
 import { createClient } from '@supabase/supabase-js';
 
 const router = express.Router();
-
-// ==========================================
-// 1. ตั้งค่าพื้นฐาน (Multer & Supabase)
-// ==========================================
-// (Multer) ให้เก็บไฟล์ไว้ใน Memory
 const upload = multer({ storage: multer.memoryStorage() });
 
-// เชื่อมต่อ Supabase ฝั่ง Backend
 const supabase = createClient(
     process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY // 👈 แก้ตรงนี้ครับ
-  );
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
 // ==========================================
-// 2. API ดึงข้อมูลที่อยู่ (GET) - เอาไว้แสดงตอนเปิดหน้าเว็บ
+// 1. API ดึงข้อมูลส่วนตัว (GET)
 // ==========================================
-router.get('/:authUserUuid/address', async (req, res) => {
-    try {
-      const { authUserUuid } = req.params;
-      
-      // 🛑 แก้ SQL ให้ดึงทั้งข้อมูล User และ profile_pic จากตาราง user_profiles มาด้วย
-      const userRes = await pool.query(`
-        SELECT u.id, up.profile_pic 
-        FROM users u
-        LEFT JOIN user_profiles up ON u.id = up.user_id
-        WHERE u.auth_user_id = $1
-      `, [authUserUuid]);
-  
-      if (userRes.rows.length === 0) return res.json({});
-      const userData = userRes.rows[0];
-  
-      // ดึงที่อยู่ (เหมือนเดิม)
-      const addrRes = await pool.query('SELECT * FROM addresses WHERE user_id = $1 LIMIT 1', [userData.id]);
-      
-      const dbAddr = addrRes.rows.length > 0 ? addrRes.rows[0] : {};
-  
-      // 🛑 ส่ง profile_pic กลับไปให้ Frontend ด้วย
-      res.json({
-        profile_pic: userData.profile_pic, // ลิงก์รูปภาพ
-        address_line: dbAddr.address_line,
-        district: dbAddr.city,
-        province: dbAddr.province,
-        postal_code: dbAddr.postal_code,
-        sub_district: ""
-      });
-    } catch (error) {
-      console.error("Error fetching data:", error);
-      res.status(500).json({ error: 'เกิดข้อผิดพลาด' });
-    }
-  });
-
-// ==========================================
-// 3. API อัปเดตข้อมูลผู้ใช้แบบจัดเต็ม (อัปโหลดรูป + ที่อยู่)
-// เส้นทาง: POST /api/users/:authUserUuid/update-profile
-// ==========================================
-router.post('/:authUserUuid/update-profile', upload.single('profileImage'), async (req, res) => {
+router.get('/:userId/address', async (req, res) => {
   try {
-    const { authUserUuid } = req.params;
+    const { userId } = req.params;
     
-    // รับค่าที่ส่งมาจาก FormData ของ Frontend
-    const { address_line, sub_district, district, province, postal_code } = req.body;
+    const isNumeric = /^[0-9]+$/.test(userId);
+    const queryColumn = isNumeric ? 'u.id' : 'u.auth_user_id';
 
-    // 1. หารหัส User ID ของ Database
-    const userRes = await pool.query('SELECT id FROM users WHERE auth_user_id = $1', [authUserUuid]);
+    const userRes = await pool.query(`
+      SELECT 
+        u.id, u.email, u.full_name AS name, u.phone, u.username, 
+        up.profile_pic 
+      FROM users u
+      LEFT JOIN user_profiles up ON u.id = up.user_id
+      WHERE ${queryColumn} = $1
+    `, [userId]);
+
+    if (userRes.rows.length === 0) return res.json({});
+    const userData = userRes.rows[0];
+    const internalUserId = userData.id;
+
+    const addressRes = await pool.query('SELECT * FROM addresses WHERE user_id = $1', [internalUserId]);
+    
+    if (addressRes.rows.length === 0) {
+       return res.json({
+          email: userData.email || '',
+          name: userData.name || '',
+          phone: userData.phone || '',
+          username: userData.username || '',
+          profile_pic: userData.profile_pic 
+       });
+    }
+
+    const addr = addressRes.rows[0];
+
+    res.json({
+      email: userData.email || '',
+      name: userData.name || '',
+      phone: userData.phone || '',
+      username: userData.username || '',
+      address_line: addr.address_line || '', 
+      sub_district: addr.subdistrict || '', // 🌟 ดึงค่า subdistrict ส่งกลับไปให้หน้าเว็บ
+      district: addr.district || '',
+      province: addr.province || '',
+      postal_code: addr.postal_code || '',
+      profile_pic: userData.profile_pic 
+    });
+  } catch (error) {
+    console.error('Error fetching address:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==========================================
+// 2. API บันทึกข้อมูลและรูปภาพ (POST)
+// ==========================================
+router.post('/:userId/update-profile', upload.single('profileImage'), async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // 🌟 1. ดักจับค่าตำบล (sub_district) จาก Frontend 
+    const { name, phone, username, address_line, sub_district, district, province, postal_code } = req.body;
+    
+    // 🕵️‍♂️ ปริ้นท์เช็คใน Terminal เลยว่าตำบลถูกส่งมาไหม!
+    console.log("📥 ข้อมูลที่ได้รับจากหน้าเว็บ:", { address_line, sub_district, district, province });
+
+    const isNumeric = /^[0-9]+$/.test(userId);
+    const queryColumn = isNumeric ? 'u.id' : 'u.auth_user_id';
+
+    const userRes = await pool.query(`
+      SELECT u.id, up.profile_pic 
+      FROM users u 
+      LEFT JOIN user_profiles up ON u.id = up.user_id
+      WHERE ${queryColumn} = $1
+    `, [userId]);
+
     if (userRes.rows.length === 0) return res.status(404).json({ error: 'ไม่พบผู้ใช้งาน' });
+
     const internalUserId = userRes.rows[0].id;
+    let profilePicUrl = userRes.rows[0].profile_pic;
 
-    let profilePicUrl = null;
-
-    // 2. 📸 จัดการอัปโหลดรูปลง Supabase Storage (ถ้ามีแนบไฟล์มา)
+    // อัปโหลดรูปใหม่ (ถ้ามี)
     if (req.file) {
       const fileExt = req.file.originalname.split('.').pop();
-      const fileName = `${authUserUuid}-${Date.now()}.${fileExt}`;
+      const fileName = `${internalUserId}-${Date.now()}.${fileExt}`;
 
-      // อัปโหลดไฟล์จาก Memory (req.file.buffer) ขึ้น Supabase
       const { error: uploadError } = await supabase.storage
-        .from('avatars-picture') // ชื่อถังเก็บรูป (Bucket) ต้องตรงกับใน Supabase
-        .upload(fileName, req.file.buffer, {
-          contentType: req.file.mimetype,
-          upsert: true
-        });
+        .from('avatars-picture') 
+        .upload(fileName, req.file.buffer, { contentType: req.file.mimetype });
 
       if (uploadError) throw uploadError;
-
-      // ขอลิงก์ Public URL
-      const { data: publicUrlData } = supabase.storage
-        .from('avatars-picture')
-        .getPublicUrl(fileName);
-
-      profilePicUrl = publicUrlData.publicUrl;
-
-      // เซฟลิงก์รูปลงตาราง user_profiles
-      await pool.query(`
-        UPDATE user_profiles SET profile_pic = $1 WHERE user_id = $2
-      `, [profilePicUrl, internalUserId]);
+      profilePicUrl = supabase.storage.from('avatars-picture').getPublicUrl(fileName).data.publicUrl;
     }
 
-    // 3. 🏠 จัดการบันทึกที่อยู่ (ดัดแปลงให้เข้ากับ DB เดิม)
-    if (address_line || province) {
-      // เอาตำบลไปต่อท้ายรายละเอียดที่อยู่
-      const combinedAddressLine = sub_district ? `${address_line} ตำบล/แขวง ${sub_district}` : address_line;
-      // เอาอำเภอไปใส่ในช่อง city
-      const cityValue = district;
+    // อัปเดต users
+    await pool.query(`
+      UPDATE users 
+      SET full_name = $1, phone = $2, username = $3
+      WHERE id = $4
+    `, [name || '', phone || '', username || '', internalUserId]);
 
-      // เช็คว่าเคยมีที่อยู่หรือยัง?
+    // อัปเดต user_profiles
+    const profileExist = await pool.query('SELECT id FROM user_profiles WHERE user_id = $1', [internalUserId]);
+    if (profileExist.rows.length === 0) {
+      await pool.query(`
+        INSERT INTO user_profiles (user_id, full_name, phone, profile_pic) 
+        VALUES ($1, $2, $3, $4)
+      `, [internalUserId, name || '', phone || '', profilePicUrl]);
+    } else {
+      await pool.query(`
+        UPDATE user_profiles 
+        SET full_name = $1, phone = $2, profile_pic = $3
+        WHERE user_id = $4
+      `, [name || '', phone || '', profilePicUrl, internalUserId]);
+    }
+
+    // 🌟 2. อัปเดตตำบล (subdistrict) ลงตาราง addresses 
+    if (address_line || province) {
       const checkExist = await pool.query('SELECT id FROM addresses WHERE user_id = $1', [internalUserId]);
 
       if (checkExist.rows.length > 0) {
         await pool.query(`
           UPDATE addresses 
-          SET address_line = $1, city = $2, province = $3, postal_code = $4
-          WHERE user_id = $5
-        `, [combinedAddressLine, cityValue, province, postal_code, internalUserId]);
+          SET address_line = $1, district = $2, province = $3, postal_code = $4, subdistrict = $5
+          WHERE user_id = $6
+        `, [address_line || '', district || '', province || '', postal_code || '', sub_district || '', internalUserId]);
       } else {
         await pool.query(`
-          INSERT INTO addresses (user_id, address_line, city, province, postal_code)
-          VALUES ($1, $2, $3, $4, $5)
-        `, [internalUserId, combinedAddressLine, cityValue, province, postal_code]);
+          INSERT INTO addresses (user_id, address_line, district, province, postal_code, subdistrict)
+          VALUES ($1, $2, $3, $4, $5, $6)
+        `, [internalUserId, address_line || '', district || '', province || '', postal_code || '', sub_district || '']);
       }
     }
 
-    res.status(200).json({ 
-      message: "อัปเดตข้อมูลและรูปโปรไฟล์สำเร็จ!",
-      profilePicUrl: profilePicUrl 
-    });
-
+    res.status(200).json({ message: 'อัปเดตข้อมูลสำเร็จ', profilePicUrl });
   } catch (error) {
-    console.error("Error updating profile:", error);
+    console.error('Error updating profile:', error);
     res.status(500).json({ error: 'เกิดข้อผิดพลาดในการอัปเดตข้อมูล' });
   }
 });
