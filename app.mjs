@@ -1,65 +1,284 @@
-import experss from "express";
-import cors from "cors";
-import "dotenv/config";
-import ServiceRoute from "./routes/serviceRoute.mjs";
-import categoryRoute from "./routes/categoryRoute.mjs";
-import paymentGateway, { stripeWebhookHandler } from "./routes/paymentGateway.mjs";
-import geocodeRoute from "./routes/geocodeRoute.mjs";
-import technicianProfileRoute from "./routes/technicianProfileRoute.mjs";
-import authRoute from "./routes/authRoute.mjs";
-import technicianHistoryRoute from "./routes/technicianHistoryRoute.mjs";
-import orderRoute from "./routes/orderRoute.mjs";
-import promotionRouter from './routes/promotionRoute.mjs';
-import cartRoute from "./routes/cartRoute.mjs";
-import technicianOrderRoute from "./routes/technicianOrderRoute.mjs";
+// ======================================================
+// IMPORTS
+// ======================================================
+
+import express from "express"
+import cors from "cors"
+import "dotenv/config"
+
+import http from "http"
+import { Server } from "socket.io"
+
+// ======================================================
+// ROUTES
+// ======================================================
+
+import ServiceRoute from "./routes/serviceRoute.mjs"
+import categoryRoute from "./routes/categoryRoute.mjs"
+import paymentGateway, { stripeWebhookHandler } from "./routes/paymentGateway.mjs"
+import geocodeRoute from "./routes/geocodeRoute.mjs"
+import technicianProfileRoute from "./routes/technicianProfileRoute.mjs"
+import authRoute from "./routes/authRoute.mjs"
+import technicianHistoryRoute from "./routes/technicianHistoryRoute.mjs"
+import orderRoute from "./routes/orderRoute.mjs"
+import promotionRouter from "./routes/promotionRoute.mjs"
+import cartRoute from "./routes/cartRoute.mjs"
+import technicianOrderRoute from "./routes/technicianOrderRoute.mjs"
 import messagesRoute from "./routes/messages.mjs"
+import chatRoute from "./routes/chatRoute.mjs"
 
+// ======================================================
+// APP INIT
+// ======================================================
 
-const app = experss();
-const PORT = process.env.PORT || 4000;
+const app = express()
+const PORT = process.env.PORT || 4000
 
-// Stripe webhook needs raw body for signature verification (must be before express.json())
+// ======================================================
+// HTTP SERVER
+// ======================================================
+
+const server = http.createServer(app)
+
+// ======================================================
+// SOCKET.IO SERVER
+// ======================================================
+
+const io = new Server(server, {
+  cors: {
+    origin: "*"
+  }
+})
+
+// ======================================================
+// ONLINE USERS STORE
+// userId -> socketId
+// ======================================================
+
+const onlineUsers = new Map()
+
+// ======================================================
+// SOCKET CONNECTION
+// ======================================================
+
+io.on("connection", (socket) => {
+
+  console.log("🔌 Socket connected:", socket.id)
+
+  // ==============================================
+  // USER ONLINE
+  // ==============================================
+
+  socket.on("user_online", ({ userId }) => {
+
+    try {
+
+      if (!userId) return
+
+      // remove old socket if exists
+      const oldSocket = onlineUsers.get(userId)
+
+      if (oldSocket && oldSocket !== socket.id) {
+        onlineUsers.delete(userId)
+      }
+
+      onlineUsers.set(userId, socket.id)
+
+      console.log("🟢 User online:", userId)
+
+      io.emit(
+        "online_users",
+        Array.from(onlineUsers.keys()).map(String)
+      )
+
+    } catch (err) {
+
+      console.error("online error:", err)
+
+    }
+
+  })
+
+  // ==============================================
+  // JOIN ROOM
+  // ==============================================
+
+  socket.on("join_room", (orderId) => {
+
+    try {
+
+      if (!orderId) return
+
+      socket.join(orderId)
+
+      console.log(`📦 Joined room ${orderId}`)
+
+    } catch (err) {
+
+      console.error("join room error:", err)
+
+    }
+
+  })
+
+  // ==============================================
+  // SEND MESSAGE
+  // ==============================================
+
+  socket.on("send_message", (message) => {
+
+    try {
+
+      if (!message?.order_id) return
+
+      console.log("💬 Message:", message)
+
+      io.to(message.order_id).emit("receive_message", message)
+
+    } catch (err) {
+
+      console.error("send message error:", err)
+
+    }
+
+  })
+
+  // ==============================================
+  // TYPING
+  // ==============================================
+
+  socket.on("typing", ({ orderId, userId }) => {
+
+    try {
+
+      socket.to(orderId).emit("typing", { userId })
+
+    } catch (err) {
+
+      console.error("typing error:", err)
+
+    }
+
+  })
+
+  socket.on("stop_typing", ({ orderId }) => {
+
+    try {
+
+      socket.to(orderId).emit("stop_typing")
+
+    } catch (err) {
+
+      console.error("stop typing error:", err)
+
+    }
+
+  })
+
+  // ==============================================
+  // DISCONNECT
+  // ==============================================
+
+  socket.on("disconnect", () => {
+
+    console.log("🔴 Socket disconnected:", socket.id)
+
+    try {
+
+      let offlineUser = null
+
+      for (const [userId, socketId] of onlineUsers.entries()) {
+
+        if (socketId === socket.id) {
+
+          offlineUser = userId
+          onlineUsers.delete(userId)
+          break
+
+        }
+
+      }
+
+      if (offlineUser) {
+
+        console.log("🔴 User offline:", offlineUser)
+
+        io.emit(
+          "online_users",
+          Array.from(onlineUsers.keys()).map(String)
+        )
+
+      }
+
+    } catch (err) {
+
+      console.error("disconnect error:", err)
+
+    }
+
+  })
+
+})
+
+// ======================================================
+// STRIPE WEBHOOK
+// ======================================================
+
 app.post(
   "/api/payment/webhook",
-  experss.raw({ type: "application/json" }),
+  express.raw({ type: "application/json" }),
   stripeWebhookHandler
-);
+)
 
-app.use(experss.json());
+// ======================================================
+// MIDDLEWARE
+// ======================================================
+
+app.use(express.json())
+
 app.use(
   cors({
     origin: [
-      "http://localhost:5173", // Frontend local (Vite)
-      "http://localhost:3000", // Frontend local (React แบบอื่น)// Frontend ที่ Deploy แล้ว
-      "http://localhost:3001", // Frontend local (React แบบอื่น)// Frontend ที่ Deploy แล้ว
-      "https://homeservices-frontend-gold.vercel.app",
-      // ✅ ให้เปลี่ยน https://your-frontend.vercel.app เป็น URL จริงของ Frontend ที่ deploy แล้ว
-    ],
-  }),
-);
+      "http://localhost:5173",
+      "http://localhost:3000",
+      "http://localhost:3001",
+      "https://homeservices-frontend-gold.vercel.app"
+    ]
+  })
+)
 
-app.use("/api/services", ServiceRoute);
-app.use("/api/categories", categoryRoute);
-app.use("/api/payment", paymentGateway);
-app.use("/api/geocode", geocodeRoute);
-app.use("/api/auth", authRoute);
-app.use("/api/orders", orderRoute);
-app.use("/api/technician", technicianHistoryRoute);
-app.use('/api/promotions', promotionRouter);
-app.use("/api/cart", cartRoute);
+// ======================================================
+// ROUTES
+// ======================================================
 
-app.use("/api/technician-profile", technicianProfileRoute);
+app.use("/api/services", ServiceRoute)
+app.use("/api/categories", categoryRoute)
+app.use("/api/payment", paymentGateway)
+app.use("/api/geocode", geocodeRoute)
+app.use("/api/auth", authRoute)
+app.use("/api/orders", orderRoute)
+app.use("/api/technician", technicianHistoryRoute)
+app.use("/api/promotions", promotionRouter)
+app.use("/api/cart", cartRoute)
+app.use("/api/technician-profile", technicianProfileRoute)
+app.use("/api/technician-orders", technicianOrderRoute)
+app.use("/api/chat", chatRoute)
 
-
-
-app.use("/api/technician-orders", technicianOrderRoute);
-
+// chat messages API
 app.use("/api", messagesRoute)
 
-app.get("/test", (req, res) => {
-  res.status(200).json({ message: "Hello World!" });
-});
+// ======================================================
+// TEST ROUTE
+// ======================================================
 
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+app.get("/test", (req, res) => {
+  res.status(200).json({ message: "Hello World!" })
+})
+
+// ======================================================
+// START SERVER
+// ======================================================
+
+server.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`)
+})
