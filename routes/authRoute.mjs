@@ -1,5 +1,4 @@
 import express from "express";
-import { googleOAuth, facebookOAuth } from "../services/authService.mjs";
 import { createClient } from "@supabase/supabase-js";
 import pool from "../utils/db.mjs";
 import generateUsername from "../utils/generateusername.mjs";
@@ -225,11 +224,11 @@ authRouter.get("/get-user", protectUser, async (req, res) => {
       id: rows[0].id, // internal users.id (number)
       auth_user_id: data.user.id, // Supabase auth user UUID
       email: rows[0].email,
-      username: rows[0].username,
+      username: rows[0].username ?? rows[0].email.split("@")[0],
       role: rows[0].role,
       full_name: rows[0].full_name,
-      phone: rows[0].phone,
-      profile_pic: rows[0].profile_pic,
+      phone: rows[0].phone ?? "",
+      profile_pic: rows[0].profile_pic ?? data.user.user_metadata?.avatar_url ?? "",
     });
   } catch (error) {
     console.error("Error fetching user data:", error);
@@ -271,9 +270,5 @@ authRouter.put("/reset-password", protectUser, async (req, res) => {
     res.status(500).json({ error: "เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์" });
   }
 });
-
-// ✅ OAuth routes
-authRouter.get("/oauth/google", googleOAuth);
-authRouter.get("/oauth/facebook", facebookOAuth);
 
 export default authRouter;
