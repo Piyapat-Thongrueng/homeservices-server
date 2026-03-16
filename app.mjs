@@ -12,6 +12,8 @@ import orderRoute from "./routes/orderRoute.mjs";
 import promotionRouter from './routes/promotionRoute.mjs';
 import cartRoute from "./routes/cartRoute.mjs";
 import technicianOrderRoute from "./routes/technicianOrderRoute.mjs";
+import technicianPendingRoute from "./routes/technicianPendingRoute.mjs";
+
 
 const app = experss();
 const PORT = process.env.PORT || 4000;
@@ -47,6 +49,9 @@ app.use('/api/promotions', promotionRouter);
 app.use("/api/cart", cartRoute);
 
 app.use("/api/technician-profile", technicianProfileRoute);
+
+app.use("/api/technician-pending", technicianPendingRoute);
+
 
 
 
