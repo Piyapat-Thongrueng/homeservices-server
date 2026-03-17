@@ -75,33 +75,38 @@ router.get('/my-orders/:userId', async (req, res) => {
   }
 });
 
-// =========================================================
 // GET Order Detail by ID
-// =========================================================
 router.get("/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
     const query = `
-      SELECT 
+      SELECT
         o.id,
-        o.status,
+        o.service_status AS status,
         o.created_at,
         o.total_price,
-        array_agg(s.name) FILTER (WHERE s.name IS NOT NULL) AS services
+        o.net_price,
+        o.appointment_date,
+        o.appointment_time,
+        array_agg(s.name) FILTER (WHERE s.name IS NOT NULL) AS services,
+        up.full_name AS technician_name,
+        up.phone AS technician_phone,
+        a.address_line,
+        a.district,
+        a.province,
+        a.postal_code
       FROM orders o
       LEFT JOIN order_items oi ON o.id = oi.order_id
       LEFT JOIN services s ON oi.service_id = s.id
+      LEFT JOIN user_profiles up ON o.technician_id = up.user_id
+      LEFT JOIN addresses a ON o.user_id = a.user_id
       WHERE o.id = $1
-      GROUP BY o.id
+      GROUP BY o.id, up.full_name, up.phone, a.address_line, a.district, a.province, a.postal_code
     `;
 
     const { rows } = await pool.query(query, [id]);
-
-    if (rows.length === 0) {
-      return res.status(404).json({ error: "Order not found" });
-    }
-
+    if (rows.length === 0) return res.status(404).json({ error: "Order not found" });
     res.json(rows[0]);
 
   } catch (error) {
@@ -109,5 +114,6 @@ router.get("/:id", async (req, res) => {
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
+
 
 export default router;
