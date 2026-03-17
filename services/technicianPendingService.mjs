@@ -23,6 +23,10 @@ SELECT
 
   a.address_line,
 
+  -- ✅ MAP
+  a.latitude AS customer_lat,
+  a.longitude AS customer_lng,
+
   u.full_name AS customer_name,
   u.phone AS customer_phone,
 
@@ -53,6 +57,8 @@ WHERE o.service_status = 'in_progress'
 GROUP BY
   o.id,
   a.address_line,
+  a.latitude,
+  a.longitude,
   u.full_name,
   u.phone,
   ta.assigned_at
@@ -91,6 +97,10 @@ SELECT
 
   a.address_line,
 
+  -- ✅ MAP
+  a.latitude AS customer_lat,
+  a.longitude AS customer_lng,
+
   u.full_name AS customer_name,
   u.phone AS customer_phone,
 
@@ -119,6 +129,8 @@ WHERE o.id = $1
 GROUP BY
   o.id,
   a.address_line,
+  a.latitude,
+  a.longitude,
   u.full_name,
   u.phone
 `;
