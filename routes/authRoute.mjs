@@ -208,7 +208,7 @@ authRouter.get("/get-user", protectUser, async (req, res) => {
         u.role,
         u.full_name,
         u.phone,
-        up.avatar_url AS profile_pic
+        COALESCE(up.profile_pic, up.avatar_url) AS profile_pic
       FROM users u
       LEFT JOIN user_profiles up ON up.user_id = u.id
       WHERE u.auth_user_id = $1

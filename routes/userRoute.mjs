@@ -14,21 +14,16 @@ const supabase = createClient(
 // ==========================================
 // 1. API ดึงข้อมูลส่วนตัว (GET)
 // ==========================================
-router.get('/:userId/address', async (req, res) => {
+router.get('/:authUserUuid/address', async (req, res) => {
   try {
-    const { userId } = req.params;
+    const { authUserUuid } = req.params;
     
-    const isNumeric = /^[0-9]+$/.test(userId);
-    const queryColumn = isNumeric ? 'u.id' : 'u.auth_user_id';
-
+    // 🌟 ดึง profile_pic จากตาราง users โดยตรง (เลิกใช้ user_profiles)
     const userRes = await pool.query(`
-      SELECT 
-        u.id, u.email, u.full_name AS name, u.phone, u.username, 
-        up.profile_pic 
-      FROM users u
-      LEFT JOIN user_profiles up ON u.id = up.user_id
-      WHERE ${queryColumn} = $1
-    `, [userId]);
+      SELECT id, email, full_name AS name, phone, username, profile_pic 
+      FROM users 
+      WHERE auth_user_id = $1
+    `, [authUserUuid]);
 
     if (userRes.rows.length === 0) return res.json({});
     const userData = userRes.rows[0];
@@ -42,7 +37,7 @@ router.get('/:userId/address', async (req, res) => {
           name: userData.name || '',
           phone: userData.phone || '',
           username: userData.username || '',
-          profile_pic: userData.profile_pic 
+          profile_pic: userData.profile_pic // ส่งรูปกลับไป
        });
     }
 
@@ -53,12 +48,14 @@ router.get('/:userId/address', async (req, res) => {
       name: userData.name || '',
       phone: userData.phone || '',
       username: userData.username || '',
-      address_line: addr.address_line || '', 
-      sub_district: addr.subdistrict || '', // 🌟 ดึงค่า subdistrict ส่งกลับไปให้หน้าเว็บ
+      address_line: addr.address_line || '', // 👈 ส่งบ้านเลขที่เดี่ยวๆ (เรื่องตำบลจบที่นี่)
+      sub_district: '', // 👈 ปล่อยว่างไว้ให้ Dropdown
       district: addr.district || '',
       province: addr.province || '',
       postal_code: addr.postal_code || '',
-      profile_pic: userData.profile_pic 
+      latitude: addr.latitude || null,
+      longitude: addr.longitude || null,
+      profile_pic: userData.profile_pic // ส่งรูปกลับไป
     });
   } catch (error) {
     console.error('Error fetching address:', error);
@@ -69,81 +66,58 @@ router.get('/:userId/address', async (req, res) => {
 // ==========================================
 // 2. API บันทึกข้อมูลและรูปภาพ (POST)
 // ==========================================
-router.post('/:userId/update-profile', upload.single('profileImage'), async (req, res) => {
+router.post('/:authUserUuid/update-profile', upload.single('profileImage'), async (req, res) => {
   try {
-    const { userId } = req.params;
-    
-    // 🌟 1. ดักจับค่าตำบล (sub_district) จาก Frontend 
-    const { name, phone, username, address_line, sub_district, district, province, postal_code } = req.body;
-    
-    // 🕵️‍♂️ ปริ้นท์เช็คใน Terminal เลยว่าตำบลถูกส่งมาไหม!
-    console.log("📥 ข้อมูลที่ได้รับจากหน้าเว็บ:", { address_line, sub_district, district, province });
+    const { authUserUuid } = req.params;
+    const { name, phone, username, address_line, district, province, postal_code, latitude, longitude } = req.body;
 
-    const isNumeric = /^[0-9]+$/.test(userId);
-    const queryColumn = isNumeric ? 'u.id' : 'u.auth_user_id';
-
-    const userRes = await pool.query(`
-      SELECT u.id, up.profile_pic 
-      FROM users u 
-      LEFT JOIN user_profiles up ON u.id = up.user_id
-      WHERE ${queryColumn} = $1
-    `, [userId]);
-
+    // 1. หา User ปัจจุบัน และดึงรูปเก่ามาเก็บไว้ก่อน (เผื่อรอบนี้ไม่ได้อัปโหลดรูปใหม่)
+    const userRes = await pool.query('SELECT id, profile_pic FROM users WHERE auth_user_id = $1', [authUserUuid]);
     if (userRes.rows.length === 0) return res.status(404).json({ error: 'ไม่พบผู้ใช้งาน' });
 
     const internalUserId = userRes.rows[0].id;
     let profilePicUrl = userRes.rows[0].profile_pic;
 
-    // อัปโหลดรูปใหม่ (ถ้ามี)
+    // 2. 📸 ถ้ามีการเลือกไฟล์รูปใหม่มาด้วย ให้เอาไปขึ้น Storage
     if (req.file) {
       const fileExt = req.file.originalname.split('.').pop();
-      const fileName = `${internalUserId}-${Date.now()}.${fileExt}`;
+      const fileName = `${authUserUuid}-${Date.now()}.${fileExt}`; // ชื่อไฟล์ไม่ซ้ำแน่นอน
 
       const { error: uploadError } = await supabase.storage
         .from('avatars-picture') 
         .upload(fileName, req.file.buffer, { contentType: req.file.mimetype });
 
       if (uploadError) throw uploadError;
+
+      // ได้ URL ใหม่ของรูปนี้มา
       profilePicUrl = supabase.storage.from('avatars-picture').getPublicUrl(fileName).data.publicUrl;
     }
 
-    // อัปเดต users
+    // 3. 🌟 อัปเดตข้อมูลทั้งหมด (รวมถึง URL รูป) ลงในตาราง users ทันที! แบบรูปใครรูปมัน
     await pool.query(`
       UPDATE users 
-      SET full_name = $1, phone = $2, username = $3
-      WHERE id = $4
-    `, [name || '', phone || '', username || '', internalUserId]);
+      SET full_name = $1, phone = $2, username = $3, profile_pic = $4
+      WHERE id = $5
+    `, [name || '', phone || '', username || '', profilePicUrl, internalUserId]);
 
-    // อัปเดต user_profiles
-    const profileExist = await pool.query('SELECT id FROM user_profiles WHERE user_id = $1', [internalUserId]);
-    if (profileExist.rows.length === 0) {
-      await pool.query(`
-        INSERT INTO user_profiles (user_id, full_name, phone, profile_pic) 
-        VALUES ($1, $2, $3, $4)
-      `, [internalUserId, name || '', phone || '', profilePicUrl]);
-    } else {
-      await pool.query(`
-        UPDATE user_profiles 
-        SET full_name = $1, phone = $2, profile_pic = $3
-        WHERE user_id = $4
-      `, [name || '', phone || '', profilePicUrl, internalUserId]);
-    }
-
-    // 🌟 2. อัปเดตตำบล (subdistrict) ลงตาราง addresses 
+    // 4. จัดการบันทึกที่อยู่ (เซฟเฉพาะบ้านเลขที่ เลิกเอาตำบลมาต่อท้าย)
     if (address_line || province) {
+      const combinedAddressLine = address_line;
+      
       const checkExist = await pool.query('SELECT id FROM addresses WHERE user_id = $1', [internalUserId]);
 
       if (checkExist.rows.length > 0) {
         await pool.query(`
           UPDATE addresses 
-          SET address_line = $1, district = $2, province = $3, postal_code = $4, subdistrict = $5
-          WHERE user_id = $6
-        `, [address_line || '', district || '', province || '', postal_code || '', sub_district || '', internalUserId]);
+          SET address_line = $1, district = $2, province = $3, postal_code = $4,
+              latitude = $5, longitude = $6
+          WHERE user_id = $7
+        `, [combinedAddressLine, district, province, postal_code, latitude || null, longitude || null, internalUserId]);
       } else {
         await pool.query(`
-          INSERT INTO addresses (user_id, address_line, district, province, postal_code, subdistrict)
-          VALUES ($1, $2, $3, $4, $5, $6)
-        `, [internalUserId, address_line || '', district || '', province || '', postal_code || '', sub_district || '']);
+          INSERT INTO addresses (user_id, address_line, district, province, postal_code, latitude, longitude)
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `, [internalUserId, combinedAddressLine, district, province, postal_code, latitude || null, longitude || null]);
       }
     }
 

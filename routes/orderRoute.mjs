@@ -8,201 +8,105 @@ router.get('/my-orders/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
 
-    // SQL Query ดึงข้อมูลและ Join ตารางที่เกี่ยวข้อง
-    const query = `
-      SELECT 
-        o.id, 
-        o.status, 
-        o.created_at as date, 
-        o.net_price as price,
-        tp.full_name as worker,
-        array_agg(s.name) as details
-      FROM orders o
-      INNER JOIN users u ON o.user_id = u.id 
-      LEFT JOIN technician_assignments ta ON o.id = ta.order_id
-      LEFT JOIN user_profiles tp ON ta.technician_id = tp.user_id
-      LEFT JOIN order_items oi ON o.id = oi.order_id
-      LEFT JOIN services s ON oi.service_id = s.id
-      WHERE u.auth_user_id = $1              
-      GROUP BY o.id, o.status, o.created_at, o.net_price, tp.full_name
-      ORDER BY o.created_at DESC;
-    `;
+    const isNumeric = /^[0-9]+$/.test(userId);
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId);
 
-    const { rows } = await pool.query(query, [userId]);
-
-    // จัดรูปแบบข้อมูลเล็กน้อยก่อนส่งกลับ (Format วันที่, ราคา)
-    const formattedOrders = rows.map(order => ({
-      id: `AD${String(order.id).padStart(8, '0')}`, // จำลองรหัสออเดอร์ เช่น AD00000012
-      status: order.status, 
-      date: new Date(order.date).toLocaleString('th-TH', { 
-        year: 'numeric', month: '2-digit', day: '2-digit', 
-        hour: '2-digit', minute: '2-digit' 
-      }) + ' น.',
-      worker: order.worker || 'รอการจัดสรรช่าง',
-      price: Number(order.price).toLocaleString('th-TH', { minimumFractionDigits: 2 }),
-      details: order.details.filter(d => d !== null)
-    }));
-
-    res.json(formattedOrders);
-
-  } catch (error) {
-    console.error("Error fetching orders:", error);
-    res.status(500).json({ error: "Internal Server Error" });
-  }
-});
-
-
-// =========================================================
-// GET Order Detail by ID
-// =========================================================
-
-router.get("/:id", async (req, res) => {
-  try {
-
-    const { id } = req.params;
-
-    const query = `
-      SELECT 
-        o.id,
-        o.status,
-        o.created_at,
-        o.total_price,
-        array_agg(s.name) FILTER (WHERE s.name IS NOT NULL) AS services
-      FROM orders o
-      LEFT JOIN order_items oi ON o.id = oi.order_id
-      LEFT JOIN services s ON oi.service_id = s.id
-      WHERE o.id = $1
-      GROUP BY o.id
-    `;
-
-    const { rows } = await pool.query(query, [id]);
-
-    if (rows.length === 0) {
-      return res.status(404).json({ error: "Order not found" });
+    // ถ้าไม่ใช่ทั้ง integer และ UUID (เช่น "null", "undefined") ให้ return ทันที
+    if (!isNumeric && !isUUID) {
+      return res.json([]);
     }
-
-    res.json(rows[0]);
-
-  } catch (error) {
-
-    console.error("Error fetching order detail:", error);
-    res.status(500).json({ error: "Internal Server Error" });
-
-  }
-});
-
-
-
-
-
-
-// =========================================================
-// GET Order Detail by ID
-// =========================================================
-
-router.get("/:id", async (req, res) => {
-  try {
-
-    const { id } = req.params;
-
-    const query = `
-      SELECT 
-        o.id,
-        o.status,
-        o.created_at,
-        o.total_price,
-        array_agg(s.name) FILTER (WHERE s.name IS NOT NULL) AS services
-      FROM orders o
-      LEFT JOIN order_items oi ON o.id = oi.order_id
-      LEFT JOIN services s ON oi.service_id = s.id
-      WHERE o.id = $1
-      GROUP BY o.id
-    `;
-
-    const { rows } = await pool.query(query, [id]);
-
-    if (rows.length === 0) {
-      return res.status(404).json({ error: "Order not found" });
-    }
-
-    res.json(rows[0]);
-
-  } catch (error) {
-
-    console.error("Error fetching order detail:", error);
-    res.status(500).json({ error: "Internal Server Error" });
-
-  }
-});
-
-
-
-
-
-// GET /api/orders - ดึงออเดอร์ทั้งหมด
-router.get('/', async (req, res) => {
-  try {
-    const result = await pool.query('SELECT * FROM orders ORDER BY created_at DESC');
-    res.json(result.rows);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูล' });
-  }
-});
-
-// POST /api/orders/mock - ยิงเพื่อสร้างออเดอร์จำลองสำหรับทดสอบ UI (บรรทัดนี้จะต้องถูกลบเมื่อเสร็จงาน)
-router.post('/mock', async (req, res) => {
-  try {
-    const { auth_user_id } = req.body;
 
     let internalUserId;
-    const userRes = await pool.query('SELECT id FROM users WHERE auth_user_id = $1', [auth_user_id]);
-    
-    if (userRes.rows.length === 0) {
-        const newUserRes = await pool.query(
-            'INSERT INTO users (auth_user_id, email, username) VALUES ($1, $2, $3) RETURNING id',
-            [auth_user_id, `mock${Date.now()}@test.com`, `user_${Date.now()}`]
-        );
-        internalUserId = newUserRes.rows[0].id;
+
+    if (isNumeric) {
+      // internal integer id — ใช้ได้เลย
+      internalUserId = parseInt(userId, 10);
     } else {
-        internalUserId = userRes.rows[0].id;
+      // Supabase auth UUID — lookup internal id
+      const { rows: userRows } = await pool.query(
+        'SELECT id FROM users WHERE auth_user_id = $1::uuid',
+        [userId]
+      );
+      if (userRows.length === 0) return res.json([]);
+      internalUserId = userRows[0].id;
     }
 
-    const addrRes = await pool.query(
-      'INSERT INTO addresses (user_id, address_line) VALUES ($1, $2) RETURNING id',
-      [internalUserId, '123/45 หมู่บ้านทดสอบ ถ.สมมติ']
-    );
-    const addressId = addrRes.rows[0].id;
+    const query = `
+      SELECT
+        o.id,
+        o.service_status AS status,
+        o.created_at AS date,
+        o.net_price AS price,
+        up.full_name AS worker,
+        array_agg(s.name) FILTER (WHERE s.name IS NOT NULL) AS details
+      FROM orders o
+      LEFT JOIN user_profiles up ON o.technician_id = up.user_id
+      LEFT JOIN order_items oi ON o.id = oi.order_id
+      LEFT JOIN services s ON oi.service_id = s.id
+      WHERE o.user_id = $1
+      GROUP BY o.id, o.service_status, o.created_at, o.net_price, up.full_name
+      ORDER BY o.created_at DESC
+    `;
 
-    const catRes = await pool.query(
-      'INSERT INTO categories (name, name_th) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET name=EXCLUDED.name RETURNING id',
-      ['Air Condition (Mock)', 'แอร์บ้าน (จำลอง)']
-    );
-    const catId = catRes.rows[0].id;
+    // 🌟 เปลี่ยนจาก [userId] เป็น [internalUserId]
+    const { rows } = await pool.query(query, [internalUserId]);
 
-    const srvRes = await pool.query(
-      'INSERT INTO services (category_id, name, price) VALUES ($1, $2, $3) RETURNING id',
-      [catId, 'ล้างแอร์ติดผนัง', 500]
-    );
-    const serviceId = srvRes.rows[0].id;
+    // จัดรูปแบบสถานะเป็นภาษาไทย
+    const formattedRows = rows.map(order => {
+      let thaiStatus = order.status;
+      if (order.status === 'pending') thaiStatus = 'รอดำเนินการ';
+      if (order.status === 'in_progress') thaiStatus = 'กำลังดำเนินการ';
+      if (order.status === 'completed') thaiStatus = 'ดำเนินการสำเร็จ';
+      if (order.status === 'cancelled') thaiStatus = 'ยกเลิกคำสั่งซ่อม';
 
-    const orderRes = await pool.query(
-      `INSERT INTO orders (user_id, address_id, status, net_price) 
-       VALUES ($1, $2, $3, $4) RETURNING id`,
-      [internalUserId, addressId, 'in_progress', 500] 
-    );
-    const orderId = orderRes.rows[0].id;
+      return {
+        ...order,
+        status: thaiStatus, 
+        worker: order.worker || 'ยังไม่ระบุช่าง', 
+        details: order.details ? order.details.filter(d => d != null) : []
+      };
+    });
 
-    await pool.query(
-      'INSERT INTO order_items (order_id, service_id, quantity, price) VALUES ($1, $2, $3, $4)',
-      [orderId, serviceId, 1, 500]
-    );
-
-    res.status(201).json({ message: "🎉 สร้างข้อมูลออเดอร์จำลองสำเร็จ!", orderId });
+    res.json(formattedRows);
 
   } catch (error) {
-    console.error("Mock Error:", error);
-    res.status(500).json({ error: "เกิดข้อผิดพลาด: " + error.message });
+    console.error('Error fetching orders:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// =========================================================
+// GET Order Detail by ID
+// =========================================================
+router.get("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const query = `
+      SELECT 
+        o.id,
+        o.status,
+        o.created_at,
+        o.total_price,
+        array_agg(s.name) FILTER (WHERE s.name IS NOT NULL) AS services
+      FROM orders o
+      LEFT JOIN order_items oi ON o.id = oi.order_id
+      LEFT JOIN services s ON oi.service_id = s.id
+      WHERE o.id = $1
+      GROUP BY o.id
+    `;
+
+    const { rows } = await pool.query(query, [id]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+
+    res.json(rows[0]);
+
+  } catch (error) {
+    console.error("Error fetching order detail:", error);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
