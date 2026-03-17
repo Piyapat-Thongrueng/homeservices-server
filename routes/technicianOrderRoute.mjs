@@ -11,7 +11,6 @@ technicianOrderRouter.get(
   protectTechnician,
   async (req, res) => {
     try {
-      // ส่ง req.user.id เข้าไปด้วย
       const orders = await technicianOrderService.getAvailableOrders(
         req.user.id,
       );

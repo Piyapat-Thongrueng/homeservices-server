@@ -1,7 +1,6 @@
 import pool from "../utils/db.mjs";
 
 const technicianOrderService = {
-  // ✅ เพิ่ม radiusKm = 10 เป็น default (ถ้าไม่ส่งมา → ใช้ 10 กม.)
   getAvailableOrders: async (technicianId, radiusKm = 10) => {
     const result = await pool.query(
       `
@@ -21,10 +20,6 @@ const technicianOrderService = {
         u.full_name AS customer_name,
         u.phone AS customer_phone,
 
-        -- คำนวณระยะทาง Haversine
-        -- LEAST(1.0, ...) ป้องกัน floating point error
-        -- เช่น cos() คืนค่า 1.0000000002 → acos() crash
-        -- LEAST บังคับให้ไม่เกิน 1.0 เสมอ
         ROUND((6371 * acos(
           LEAST(1.0,
             cos(radians(up.latitude::float)) * cos(radians(a.latitude::float)) *
@@ -41,19 +36,16 @@ const technicianOrderService = {
       LEFT JOIN order_items oi ON o.id = oi.order_id
       LEFT JOIN services s ON oi.service_id = s.id
       LEFT JOIN service_items si ON s.id = si.service_id
-
       JOIN user_profiles up ON up.user_id = $1
       JOIN users u ON o.user_id = u.id
 
       WHERE o.status = 'completed'
 
-        -- ยังไม่มีช่างรับ
         AND NOT EXISTS (
           SELECT 1 FROM technician_assignments ta
           WHERE ta.order_id = o.id AND ta.status = 'assigned'
         )
 
-        -- ช่างคนนี้ยังไม่ปฏิเสธ
         AND NOT EXISTS (
           SELECT 1 FROM technician_assignments ta
           WHERE ta.order_id = o.id
@@ -93,9 +85,9 @@ const technicianOrderService = {
         )
       )) <= $2
 
-      ORDER BY distance_km ASC  -- ✅ เรียงจากใกล้ไปไกล
+      ORDER BY distance_km ASC
       `,
-      [technicianId, radiusKm], // ✅ ส่ง radiusKm เป็น $2
+      [technicianId, radiusKm],
     );
 
     return result.rows.map((order) => ({
@@ -108,17 +100,16 @@ const technicianOrderService = {
       appointment_time: order.appointment_time,
       remark: order.remark,
       address: order.address_line ?? "-",
-      customer_lat: order.customer_lat ? Number(order.customer_lat) : null, // ✅ เพิ่ม
-      customer_lng: order.customer_lng ? Number(order.customer_lng) : null, // ✅ เพิ่ม
-      distance_km: Number(order.distance_km), // ✅ เพิ่ม
+      customer_lat: order.customer_lat ? Number(order.customer_lat) : null,
+      customer_lng: order.customer_lng ? Number(order.customer_lng) : null,
+      distance_km: Number(order.distance_km),
       service_names: order.service_names.filter(Boolean),
       item_names: order.item_names.filter(Boolean),
       customer_name: order.customer_name ?? "-",
       customer_phone: order.customer_phone ?? "-",
     }));
   },
-
-  // acceptOrder และ rejectOrder เหมือนเดิม ไม่มีการแก้ไข
+  
   acceptOrder: async (orderId, technicianId) => {
     const client = await pool.connect();
     try {
@@ -137,11 +128,36 @@ const technicianOrderService = {
          VALUES ($1, $2, 'assigned', NOW())`,
         [orderId, technicianId],
       );
+
       await client.query(
         `UPDATE orders SET service_status = 'in_progress', updated_at = NOW()
          WHERE id = $1`,
         [orderId],
       );
+
+      const orderResult = await client.query(
+        `SELECT o.user_id, u.full_name
+       FROM orders o
+       JOIN users u ON u.id = $2
+       WHERE o.id = $1`,
+        [orderId, technicianId],
+      );
+
+      if (orderResult.rows.length > 0) {
+        const { user_id, full_name } = orderResult.rows[0];
+        const technicianName = full_name?.trim() || "ช่าง";
+
+        await client.query(
+          `INSERT INTO notifications (user_id, order_id, type, message)
+         VALUES ($1, $2, 'order_accepted', $3)`,
+          [
+            user_id,
+            orderId,
+            `${technicianName} รับงานของคุณแล้ว กำลังดำเนินการ`,
+          ],
+        );
+      }
+
       await client.query("COMMIT");
       return { success: true, message: "รับงานสำเร็จ" };
     } catch (error) {

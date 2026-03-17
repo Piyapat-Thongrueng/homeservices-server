@@ -14,7 +14,9 @@ import promotionRouter from "./routes/promotionRoute.mjs";
 import cartRoute from "./routes/cartRoute.mjs";
 import technicianOrderRoute from "./routes/technicianOrderRoute.mjs";
 import technicianPendingRoute from "./routes/technicianPendingRoute.mjs";
-import userRoute from "./routes/userRoute.mjs";
+import notificationRoute from "./routes/notificationRoute.mjs";
+
+import userRoute from './routes/userRoute.mjs';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -75,6 +77,7 @@ app.use("/api/cart", cartRoute);
 app.use("/api/promotions", promotionRouter);
 
 app.use("/api/users", userRoute);
+app.use("/api/notifications", notificationRoute);
 
 app.use("/api/technician-profile", technicianProfileRoute);
 
