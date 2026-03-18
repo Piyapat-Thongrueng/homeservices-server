@@ -4,8 +4,6 @@ import * as technicianPendingService from "../services/technicianPendingService.
 
 const router = express.Router();
 
-
-
 /* =========================================================
    GET Pending Jobs
 ========================================================= */
@@ -31,8 +29,6 @@ router.get("/pending", protectTechnician, async (req, res) => {
   }
 
 });
-
-
 
 /* =========================================================
    GET Job Detail
@@ -80,10 +76,8 @@ router.get("/job/:orderId", protectTechnician, async (req, res) => {
 
 });
 
-
-
 /* =========================================================
-   COMPLETE JOB
+   COMPLETE JOB (FIX SOCKET HERE)
 ========================================================= */
 
 router.patch("/complete/:orderId", protectTechnician, async (req, res) => {
@@ -106,6 +100,28 @@ router.patch("/complete/:orderId", protectTechnician, async (req, res) => {
       technicianId
     );
 
+    // =========================================
+    // REALTIME: CLOSE CHAT ROOM
+    // =========================================
+
+    try {
+
+      const io = req.app.get("io");
+
+      if (io) {
+        io.to(String(orderId)).emit("chat_closed");
+      } else {
+        console.warn("⚠️ Socket io not found on app");
+      }
+
+    } catch (socketError) {
+
+      console.error("❌ SOCKET EMIT ERROR:", socketError);
+
+    }
+
+    // =========================================
+
     res.json({
       message: "Job completed successfully",
       result
@@ -122,8 +138,6 @@ router.patch("/complete/:orderId", protectTechnician, async (req, res) => {
   }
 
 });
-
-
 
 /* =========================================================
    GET Counters
@@ -150,7 +164,5 @@ router.get("/counters", protectTechnician, async (req, res) => {
   }
 
 });
-
-
 
 export default router;
