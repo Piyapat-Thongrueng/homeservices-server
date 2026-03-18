@@ -18,6 +18,7 @@ function delay(ms) {
 
 /**
  * Geocode to latitude/longitude for use with Leaflet (lat/lng).
+ * Tries multiple query strategies for better Thai location coverage.
  * Returns { latitude, longitude } or null.
  */
 export async function geocodeAddress({
@@ -27,12 +28,46 @@ export async function geocodeAddress({
   province,
   postal_code,
 }) {
-  const parts = [address_line, subdistrict, district, province, postal_code].filter(Boolean);
-  if (!parts.length) return null;
+  if (!province && !district && !subdistrict && !postal_code) return null;
 
-  const q = `${parts.join(', ')}, Thailand`;
-  await delay(1100);
-  return nominatimSearch(q);
+  // Strategy 1: Try structured search with Thai administrative prefixes
+  const queries = buildSearchQueries({ subdistrict, district, province, postal_code });
+  
+  for (const query of queries) {
+    await delay(1100);
+    const result = await nominatimSearch(query);
+    if (result) return result;
+  }
+
+  return null;
+}
+
+/**
+ * Build search query variants ordered by specificity.
+ * Thai locations may be stored with or without prefixes (ตำบล, อำเภอ, จังหวัด).
+ * We try without prefixes first (more common in OSM), then with prefixes as fallback.
+ */
+function buildSearchQueries({ subdistrict, district, province, postal_code }) {
+  const queries = [];
+
+  // Most specific: subdistrict + district + province (without prefix first - more common)
+  if (subdistrict && district && province) {
+    queries.push(`${subdistrict}, ${district}, ${province}, Thailand`);
+    queries.push(`ตำบล${subdistrict}, อำเภอ${district}, จังหวัด${province}, Thailand`);
+  }
+
+  // Less specific: district + province
+  if (district && province) {
+    queries.push(`${district}, ${province}, Thailand`);
+    queries.push(`อำเภอ${district}, จังหวัด${province}, Thailand`);
+  }
+
+  // Fallback: province only (ensures at least province-level centering)
+  if (province) {
+    queries.push(`${province}, Thailand`);
+  }
+
+  return queries;
 }
 
 function nominatimSearch(query) {
