@@ -37,7 +37,7 @@ router.get('/:authUserUuid/address', async (req, res) => {
           name: userData.name || '',
           phone: userData.phone || '',
           username: userData.username || '',
-          profile_pic: userData.profile_pic // ส่งรูปกลับไป
+          profile_pic: userData.profile_pic
        });
     }
 
@@ -49,7 +49,7 @@ router.get('/:authUserUuid/address', async (req, res) => {
       phone: userData.phone || '',
       username: userData.username || '',
       address_line: addr.address_line || '', // 👈 ส่งบ้านเลขที่เดี่ยวๆ (เรื่องตำบลจบที่นี่)
-      sub_district: '', // 👈 ปล่อยว่างไว้ให้ Dropdown
+      sub_district: addr.sub_district || '',
       district: addr.district || '',
       province: addr.province || '',
       postal_code: addr.postal_code || '',
@@ -69,7 +69,7 @@ router.get('/:authUserUuid/address', async (req, res) => {
 router.post('/:authUserUuid/update-profile', upload.single('profileImage'), async (req, res) => {
   try {
     const { authUserUuid } = req.params;
-    const { name, phone, username, address_line, district, province, postal_code, latitude, longitude } = req.body;
+    const { name, phone, username, address_line, sub_district, district, province, postal_code, latitude, longitude } = req.body;
 
     // 1. หา User ปัจจุบัน และดึงรูปเก่ามาเก็บไว้ก่อน (เผื่อรอบนี้ไม่ได้อัปโหลดรูปใหม่)
     const userRes = await pool.query('SELECT id, profile_pic FROM users WHERE auth_user_id = $1', [authUserUuid]);
@@ -109,15 +109,15 @@ router.post('/:authUserUuid/update-profile', upload.single('profileImage'), asyn
       if (checkExist.rows.length > 0) {
         await pool.query(`
           UPDATE addresses 
-          SET address_line = $1, district = $2, province = $3, postal_code = $4,
-              latitude = $5, longitude = $6
-          WHERE user_id = $7
-        `, [combinedAddressLine, district, province, postal_code, latitude || null, longitude || null, internalUserId]);
+          SET address_line = $1, sub_district = $2, district = $3, province = $4, postal_code = $5,
+              latitude = $6, longitude = $7
+          WHERE user_id = $8
+        `, [combinedAddressLine, sub_district || '', district, province, postal_code, latitude || null, longitude || null, internalUserId]);
       } else {
         await pool.query(`
-          INSERT INTO addresses (user_id, address_line, district, province, postal_code, latitude, longitude)
-          VALUES ($1, $2, $3, $4, $5, $6, $7)
-        `, [internalUserId, combinedAddressLine, district, province, postal_code, latitude || null, longitude || null]);
+          INSERT INTO addresses (user_id, address_line, sub_district, district, province, postal_code, latitude, longitude)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `, [internalUserId, combinedAddressLine, sub_district || '', district, province, postal_code, latitude || null, longitude || null]);
       }
     }
 
