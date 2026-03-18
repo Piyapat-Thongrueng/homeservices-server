@@ -188,10 +188,14 @@ serviceRouter.post(
     try {
       // 1) รับข้อมูลจาก request body และไฟล์ที่อัปโหลด
       const newPost = req.body;
+      if (!req.files?.imageFile?.[0]) {
+        return res.status(400).json({ error: "กรุณาอัปโหลดรูปภาพ" });
+      }
       const file = req.files.imageFile[0];
       // 2) กำหนด bucket และ path ที่จะเก็บไฟล์ใน Supabase
       const bucketName = "services-image";
-      const filePath = `posts/${Date.now()}_${file.originalname}`; // สร้าง path ที่ไม่ซ้ำกัน
+      const ext = file.originalname.split(".").pop();
+      const filePath = `posts/${Date.now()}.${ext}`;
       // 3) อัปโหลดไฟล์ไปยัง Supabase Storage
       const { data, error } = await supabase.storage
         .from(bucketName)
@@ -207,7 +211,26 @@ serviceRouter.post(
         data: { publicUrl },
       } = supabase.storage.from(bucketName).getPublicUrl(data.path);
       // 5) บันทึกข้อมูลโพสต์ลงในฐานข้อมูล
-
+      const { rows } = await connectionPool.query(
+        `INSERT INTO services (name, description, price, category_id, image)
+          VALUES ($1, $2, $3, $4, $5)
+          RETURNING *`,
+        [
+          newPost.name,
+          newPost.description,
+          newPost.price,
+          newPost.category_id,
+          publicUrl,
+        ],
+      );
+      if (!rows[0]) {
+        await supabase.storage.from(bucketName).remove([filePath]);
+        return res.status(500).json({ error: "Failed to create service" });
+      }
+      res.status(201).json({
+        message: "Service created successfully",
+        service: rows[0],
+      });
       // 6) ส่งผลลัพธ์กลับไปยัง client
     } catch (error) {
       console.error("Error creating service:", error);
