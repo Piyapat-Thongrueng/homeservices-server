@@ -56,6 +56,8 @@ const io = new Server(server, {
   }
 })
 
+app.set("io", io)
+
 initSocket(io)
 
 
@@ -102,7 +104,7 @@ app.use("/api/cart", cartRoute)
 app.use("/api/technician-profile", technicianProfileRoute)
 app.use("/api/technician-orders", technicianOrderRoute)
 
-// ✅ chat
+// chat
 app.use("/api/chat", chatRoute)
 app.use("/api/chat", messagesRoute)
 

@@ -1,4 +1,6 @@
-import { getSupabase } from "../utils/supabaseClient.mjs"
+import pool from "../utils/db.mjs"
+
+
 
 // ======================================
 // CHECK CHAT ACCESS
@@ -6,19 +8,21 @@ import { getSupabase } from "../utils/supabaseClient.mjs"
 
 export async function validateChatAccess(order_id, user_id) {
 
-  const supabase = getSupabase()
+  // 1. ดึง order
+  const orderQuery = `
+    SELECT id, user_id, technician_id, status, service_status
+    FROM orders
+    WHERE id = $1
+  `
+  const { rows: orderRows } = await pool.query(orderQuery, [order_id])
 
-  // order
-  const { data: order, error } = await supabase
-    .from("orders")
-    .select("id, user_id, status, service_status")
-    .eq("id", order_id)
-    .single()
+  const order = orderRows[0]
 
-  if (error || !order) {
+  if (!order) {
     throw new Error("Order not found")
   }
 
+  // 2. เงื่อนไขเปิดแชท (ปรับให้ตรง flow เรา)
   if (order.status !== "paid") {
     throw new Error("Chat not available until payment")
   }
@@ -27,22 +31,25 @@ export async function validateChatAccess(order_id, user_id) {
     throw new Error("Chat is closed")
   }
 
-  // technician
-  const { data: tech } = await supabase
-    .from("technician_assignments")
-    .select("technician_id")
-    .eq("order_id", order_id)
-    .maybeSingle()
+  // ต้อง assign แล้วเท่านั้น
+  if (!order.technician_id) {
+    throw new Error("Chat not available yet")
+  }
 
+  // 3. เช็คสิทธิ์
   const isCustomer = user_id === order.user_id
-  const isTechnician = user_id === tech?.technician_id
+  const isTechnician = user_id === order.technician_id
 
   if (!isCustomer && !isTechnician) {
     throw new Error("Unauthorized")
   }
 
-  return true
+  return {
+    order,
+    role: isCustomer ? "customer" : "technician"
+  }
 }
+
 
 
 // ======================================
@@ -51,26 +58,24 @@ export async function validateChatAccess(order_id, user_id) {
 
 export async function sendMessage({ order_id, sender_id, message }) {
 
-  const supabase = getSupabase()
+  const { role } = await validateChatAccess(order_id, sender_id)
 
-  await validateChatAccess(order_id, sender_id)
+  const insertQuery = `
+    INSERT INTO messages (order_id, sender_id, sender_role, message, is_read)
+    VALUES ($1, $2, $3, $4, false)
+    RETURNING *
+  `
 
-  const { data, error } = await supabase
-    .from("messages")
-    .insert([
-      {
-        order_id,
-        sender_id,
-        message,
-        is_read: false
-      }
-    ])
-    .select()
+  const { rows } = await pool.query(insertQuery, [
+    order_id,
+    sender_id,
+    role,
+    message
+  ])
 
-  if (error) throw error
-
-  return data[0]
+  return rows[0]
 }
+
 
 
 // ======================================
@@ -79,25 +84,28 @@ export async function sendMessage({ order_id, sender_id, message }) {
 
 export async function getMessages(orderId, userId, page = 1) {
 
-  const supabase = getSupabase()
-
   await validateChatAccess(orderId, userId)
 
   const limit = 30
-  const from = (page - 1) * limit
-  const to = from + limit - 1
+  const offset = (page - 1) * limit
 
-  const { data, error } = await supabase
-    .from("messages")
-    .select("*")
-    .eq("order_id", orderId)
-    .order("created_at", { ascending: true })
-    .range(from, to)
+  const query = `
+    SELECT *
+    FROM messages
+    WHERE order_id = $1
+    ORDER BY created_at ASC
+    LIMIT $2 OFFSET $3
+  `
 
-  if (error) throw error
+  const { rows } = await pool.query(query, [
+    orderId,
+    limit,
+    offset
+  ])
 
-  return data
+  return rows
 }
+
 
 
 // ======================================
@@ -106,20 +114,21 @@ export async function getMessages(orderId, userId, page = 1) {
 
 export async function markAsRead(orderId, userId) {
 
-  const supabase = getSupabase()
-
   await validateChatAccess(orderId, userId)
 
-  const { error } = await supabase
-    .from("messages")
-    .update({ is_read: true })
-    .eq("order_id", orderId)
-    .neq("sender_id", userId)
+  const query = `
+    UPDATE messages
+    SET is_read = true
+    WHERE order_id = $1
+      AND sender_id != $2
+      AND is_read = false
+  `
 
-  if (error) throw error
+  await pool.query(query, [orderId, userId])
 
   return true
 }
+
 
 
 // ======================================
@@ -128,18 +137,17 @@ export async function markAsRead(orderId, userId) {
 
 export async function getUnreadCount(orderId, userId) {
 
-  const supabase = getSupabase()
-
   await validateChatAccess(orderId, userId)
 
-  const { data, error } = await supabase
-    .from("messages")
-    .select("id")
-    .eq("order_id", orderId)
-    .eq("is_read", false)
-    .neq("sender_id", userId)
+  const query = `
+    SELECT COUNT(*)::int AS count
+    FROM messages
+    WHERE order_id = $1
+      AND is_read = false
+      AND sender_id != $2
+  `
 
-  if (error) throw error
+  const { rows } = await pool.query(query, [orderId, userId])
 
-  return data.length
+  return rows[0].count
 }
