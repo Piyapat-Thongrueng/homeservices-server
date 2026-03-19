@@ -1,5 +1,5 @@
 import express from 'express';
-import { geocodeAddress } from '../utils/geocode.mjs';
+import geocodePreviewService from "../services/geocodePreviewService.mjs";
 
 const router = express.Router();
 
@@ -20,12 +20,12 @@ router.get('/preview', async (req, res) => {
       return res.status(400).json({ error: 'Provide address_line or province.' });
     }
 
-    const coords = await geocodeAddress({
-      address_line: address_line || undefined,
-      district: district || undefined,
-      subdistrict: subdistrict || undefined,
-      province: province || undefined,
-      postal_code: postal_code || undefined,
+    const coords = await geocodePreviewService.previewGeocode({
+      address_line,
+      district,
+      subdistrict,
+      province,
+      postal_code,
     });
 
     if (!coords) {
