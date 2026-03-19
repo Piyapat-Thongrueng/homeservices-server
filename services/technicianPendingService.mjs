@@ -107,7 +107,7 @@ FROM orders o
 JOIN technician_assignments ta
   ON ta.order_id = o.id
   AND ta.technician_id = $2
-  AND ta.status = 'assigned'
+  AND ta.status IN ('assigned', 'completed')
 
 LEFT JOIN addresses a ON o.address_id = a.id
 LEFT JOIN order_items oi ON o.id = oi.order_id

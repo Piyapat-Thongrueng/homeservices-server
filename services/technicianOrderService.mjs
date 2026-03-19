@@ -176,17 +176,3 @@ const technicianOrderService = {
 };
 
 export default technicianOrderService;
-
-// ✅ getAvailableOrders
-//    - กรองบริการที่ช่างรับได้ (technician_services)
-//    - กรองงานที่ปฏิเสธไปแล้ว (rejected)
-//    - กรองรัศมี 10 กม. ด้วย Haversine
-//    - เรียงจากใกล้ไปไกล
-//    - ส่ง customer_lat, customer_lng, distance_km ไปด้วย
-
-// ✅ acceptOrder
-//    - Transaction ป้องกัน race condition
-//    - UPDATE service_status = 'in_progress'
-
-// ✅ rejectOrder
-//    - บันทึก rejected ไม่แตะ orders.status
