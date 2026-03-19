@@ -100,8 +100,8 @@ const technicianOrderService = {
       customer_lat: order.customer_lat ? Number(order.customer_lat) : null,
       customer_lng: order.customer_lng ? Number(order.customer_lng) : null,
       distance_km: Number(order.distance_km),
-      service_names: order.service_names.filter(Boolean),
-      item_names: order.item_names.filter(Boolean),
+      service_names: (order.service_names ?? []).filter(Boolean),
+      item_names: (order.item_names ?? []).filter(Boolean),
       customer_name: order.customer_name ?? "-",
       customer_phone: order.customer_phone ?? "-",
     }));
@@ -133,7 +133,7 @@ const technicianOrderService = {
            service_status = 'in_progress',
            updated_at = NOW()
          WHERE id = $1`,
-        [orderId]
+        [orderId],
       );
 
       const orderResult = await client.query(
