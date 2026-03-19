@@ -5,20 +5,12 @@ import multer from "multer";
 import postServiceValidate from "../middlewares/postServiceValidate.mjs";
 import protectAdmin from "../middlewares/protectAdmin.mjs";
 
-let supabase;
-
-const getSupabase = () => {
-  if (!supabase) {
-    supabase = createClient(
-      process.env.SUPABASE_URL,
-      process.env.SUPABASE_ANON_KEY,
-    );
-  }
-  return supabase;
-};
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY,
+);
 
 const serviceRouter = Router();
-// เก็บไฟล์รูปภาพในแรมของเซิร์ฟเวอร์ เช็คขนาดและประเภทไฟล์ก่อนอัปโหลดไปยัง Supabase Storage
 const multerUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -38,7 +30,6 @@ const imageFileUpload = multerUpload.fields([
   { name: "imageFile", maxCount: 1 },
 ]);
 
-// GET /api/services - ดึงข้อมูลบริการทั้งหมด
 serviceRouter.get("/", async (req, res) => {
   try {
     const {
@@ -83,48 +74,53 @@ serviceRouter.get("/", async (req, res) => {
       paramIndex++;
     }
 
+    query += ` GROUP BY services.id, categories.name, categories.name_th`;
+
+    const havingConditions = [];
+
+    if (filter === "recommended") {
+      havingConditions.push("COALESCE(AVG(reviews.rating), 0) >= 4");
+    }
+
     if (min_price) {
-      query += ` AND service_items.price_per_unit >= $${paramIndex}`;
-      params.push(min_price);
+      havingConditions.push(
+        `MIN(service_items.price_per_unit) >= $${paramIndex}`,
+      );
+      params.push(Number(min_price));
       paramIndex++;
     }
 
     if (max_price) {
-      query += ` AND service_items.price_per_unit <= $${paramIndex}`;
-      params.push(max_price);
+      havingConditions.push(
+        `MAX(service_items.price_per_unit) <= $${paramIndex}`,
+      );
+      params.push(Number(max_price));
       paramIndex++;
     }
 
-    // GROUP BY ต้องใส่เพราะมี AVG และ COUNT
-    query += ` GROUP BY services.id, categories.name, categories.name_th`;
-
-    // คัดกรองตาม filter พิเศษ
-    if (filter === "recommended") {
-      // rating เฉลี่ย >= 4 ถือว่าแนะนำ
-      query += ` HAVING COALESCE(AVG(reviews.rating), 0) >= 4`;
+    if (havingConditions.length > 0) {
+      query += ` HAVING ${havingConditions.join(" AND ")}`;
     }
 
-    // 🔤 Sort
-    const allowedSortBy = ["name", "created_at"];
-    const allowedOrder = ["ASC", "DESC"];
+    const sortMap = {
+      price: "min_price",
+      name: "services.name",
+      created_at: "services.created_at",
+      order_count: "order_count",
+      avg_rating: "avg_rating",
+    };
 
     let sortColumn;
     let sortOrder;
 
     if (filter === "popular") {
-      // ยอดนิยม = เรียงตามจำนวน order มากสุด
-      sortColumn = "order_count";
+      sortColumn = sortMap["order_count"];
       sortOrder = "DESC";
     } else if (filter === "recommended") {
-      // แนะนำ = เรียงตาม rating สูงสุด
-      sortColumn = "avg_rating";
+      sortColumn = sortMap["avg_rating"];
       sortOrder = "DESC";
     } else {
-      sortColumn = (() => {
-        if (sort_by === "price") return "min_price";
-        if (allowedSortBy.includes(sort_by)) return `services.${sort_by}`;
-        return "services.created_at";
-      })();
+      sortColumn = sortMap[sort_by] ?? "services.created_at";
       sortOrder = ["ASC", "DESC"].includes(order?.toUpperCase())
         ? order.toUpperCase()
         : "ASC";
@@ -140,7 +136,6 @@ serviceRouter.get("/", async (req, res) => {
   }
 });
 
-// GET /api/services/:id - ดึงข้อมูลบริการตาม ID พร้อม items
 serviceRouter.get("/:id", async (req, res) => {
   const { id } = req.params;
   try {
@@ -178,60 +173,88 @@ serviceRouter.get("/:id", async (req, res) => {
   }
 });
 
-// POST /api/services - เพิ่มบริการใหม่
 serviceRouter.post(
   "/",
   protectAdmin,
   imageFileUpload,
   postServiceValidate,
+
   async (req, res) => {
+    let createdServiceId = null;
+    const bucketName = "services-image";
+    let filePath;
+
     try {
-      // 1) รับข้อมูลจาก request body และไฟล์ที่อัปโหลด
-      const newPost = req.body;
+      const { name, category_id, description } = req.body;
+      const items = req.parsedItems;
       if (!req.files?.imageFile?.[0]) {
         return res.status(400).json({ error: "กรุณาอัปโหลดรูปภาพ" });
       }
       const file = req.files.imageFile[0];
-      // 2) กำหนด bucket และ path ที่จะเก็บไฟล์ใน Supabase
-      const bucketName = "services-image";
-      const ext = file.originalname.split(".").pop();
-      const filePath = `posts/${Date.now()}.${ext}`;
-      // 3) อัปโหลดไฟล์ไปยัง Supabase Storage
-      const { data, error } = await supabase.storage
+
+      const fileExt = file.originalname.split(".").pop();
+      filePath = `services/${Date.now()}.${fileExt}`;
+      const { data: uploadData, error: uploadError } = await supabase.storage
         .from(bucketName)
         .upload(filePath, file.buffer, {
           contentType: file.mimetype,
-          upsert: false, // ป้องกันการเขียนทับไฟล์เดิม
+          upsert: false,
         });
-      if (error) {
-        throw error;
+      if (uploadError) {
+        throw uploadError;
       }
-      // 4) ดึง URL สาธารณะของไฟล์ที่อัปโหลด
       const {
         data: { publicUrl },
-      } = supabase.storage.from(bucketName).getPublicUrl(data.path);
-      // 5) บันทึกข้อมูลโพสต์ลงในฐานข้อมูล
-      const { rows } = await connectionPool.query(
-        `INSERT INTO services (name, description, price, category_id, image)
-          VALUES ($1, $2, $3, $4, $5)
-          RETURNING *`,
+      } = supabase.storage.from(bucketName).getPublicUrl(uploadData.path);
+      const serviceResult = await connectionPool.query(
+        `INSERT INTO services (name, category_id, description, image) VALUES ($1, $2, $3, $4) RETURNING *`,
         [
-          newPost.name,
-          newPost.description,
-          newPost.price,
-          newPost.category_id,
+          name.trim(),
+          Number(category_id),
+          description ? description.trim() : null,
           publicUrl,
         ],
       );
-      if (!rows[0]) {
-        await supabase.storage.from(bucketName).remove([filePath]);
-        return res.status(500).json({ error: "Failed to create service" });
-      }
-      res.status(201).json({
-        message: "Service created successfully",
-        service: rows[0],
+      const newService = serviceResult.rows[0];
+      createdServiceId = newService.id;
+
+      const values = [];
+      const placeholders = items.map((item, index) => {
+        const offset = index * 4;
+        values.push(
+          createdServiceId,
+          item.name.trim(),
+          Number(item.price_per_unit),
+          item.unit.trim(),
+        );
+        return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4})`;
       });
-      // 6) ส่งผลลัพธ์กลับไปยัง client
+      try {
+        const itemsResult = await connectionPool.query(
+          `INSERT INTO service_items (service_id, name, price_per_unit, unit)
+     VALUES ${placeholders.join(", ")}
+     RETURNING *`,
+          values,
+        );
+        res.status(201).json({
+          success: true,
+          message: "สร้างบริการสำเร็จ",
+          data: {
+            ...newService,
+            items: itemsResult.rows,
+          },
+        });
+      } catch (itemsError) {
+        console.error(
+          "Error inserting service items, rolling back:",
+          itemsError,
+        );
+        await connectionPool.query(`DELETE FROM services WHERE id = $1`, [
+          createdServiceId,
+        ]);
+        await supabase.storage.from(bucketName).remove([filePath]);
+        throw itemsError;
+      }
     } catch (error) {
       console.error("Error creating service:", error);
       res.status(500).json({ error: "Internal Server Error" });
@@ -239,12 +262,27 @@ serviceRouter.post(
   },
 );
 
-// PUT /api/services/:id - อัปเดตบริการตาม ID
 serviceRouter.put("/:id", protectAdmin, imageFileUpload, async (req, res) => {
   const { id } = req.params;
-  const { name, description, price, category_id } = req.body;
+  let parsedItems = null;
+
   try {
-    const response = await connectionPool.query(
+    const { name, category_id, description, items } = req.body;
+    if (items) {
+      try {
+        parsedItems = typeof items === "string" ? JSON.parse(items) : items;
+      } catch {
+        return res.status(400).json({ error: "items format invalid" });
+      }
+
+      if (!Array.isArray(parsedItems) || parsedItems.length === 0) {
+        return res
+          .status(400)
+          .json({ error: "ต้องมีรายการบริการย่อยอย่างน้อย 1 รายการ" });
+      }
+    }
+
+    const existing = await connectionPool.query(
       "SELECT * FROM services WHERE id = $1",
       [id],
     );
@@ -252,8 +290,6 @@ serviceRouter.put("/:id", protectAdmin, imageFileUpload, async (req, res) => {
       return res.status(404).json({ error: "Service not found" });
     }
 
-    // จัดการรูปภาพ
-    // ถ้ามีไฟล์ใหม่ส่งมา → upload ใหม่, ถ้าไม่มี → ใช้รูปเดิม
     let imageUrl = existing.rows[0].image;
 
     if (req.files?.imageFile?.[0]) {
@@ -278,7 +314,6 @@ serviceRouter.put("/:id", protectAdmin, imageFileUpload, async (req, res) => {
       imageUrl = publicUrl;
     }
 
-    // UPDATE ตาราง services
     const updateResponse = await connectionPool.query(
       `UPDATE services
        SET name = $1,
@@ -299,19 +334,14 @@ serviceRouter.put("/:id", protectAdmin, imageFileUpload, async (req, res) => {
 
     const updatedService = updateResponse.rows[0];
 
-    // UPDATE service_items
-    // Strategy: ลบของเก่าทั้งหมด แล้ว insert ใหม่
-    // เหตุผล: ง่ายกว่าการ diff ว่า item ไหนเพิ่ม/แก้/ลบ
     let updatedItems = [];
 
     if (parsedItems) {
-      // ลบ items เดิมทั้งหมดของ service นี้
       await connectionPool.query(
         "DELETE FROM service_items WHERE service_id = $1",
         [id],
       );
 
-      // Insert items ใหม่
       const values = [];
       const placeholders = parsedItems.map((item, index) => {
         const offset = index * 4;
@@ -332,7 +362,6 @@ serviceRouter.put("/:id", protectAdmin, imageFileUpload, async (req, res) => {
       );
       updatedItems = itemsResult.rows;
     } else {
-      // ถ้าไม่ได้ส่ง items มา → ดึง items เดิมกลับไปให้ frontend
       const existingItems = await connectionPool.query(
         "SELECT * FROM service_items WHERE service_id = $1 ORDER BY id",
         [id],
@@ -351,22 +380,50 @@ serviceRouter.put("/:id", protectAdmin, imageFileUpload, async (req, res) => {
   }
 });
 
-// DELETE /api/services/:id - ลบบริการตาม ID
 serviceRouter.delete("/:id", protectAdmin, async (req, res) => {
   const { id } = req.params;
+  const client = await connectionPool.connect();
+
   try {
-    const response = await connectionPool.query(
+    const existing = await client.query(
       "SELECT * FROM services WHERE id = $1",
       [id],
     );
-    if (response.rows.length === 0) {
+    if (existing.rows.length === 0) {
       return res.status(404).json({ error: "Service not found" });
     }
-    await connectionPool.query("DELETE FROM services WHERE id = $1", [id]);
+
+    await client.query("BEGIN");
+
+    await client.query("DELETE FROM service_items WHERE service_id = $1", [id]);
+    await client.query(
+      "DELETE FROM technician_services WHERE service_id = $1",
+      [id],
+    );
+    await client.query("DELETE FROM reviews WHERE service_id = $1", [id]);
+    await client.query("DELETE FROM services WHERE id = $1", [id]);
+
+    await client.query("COMMIT");
+
+    const imageUrl = existing.rows[0].image;
+    if (imageUrl) {
+      const filePath = imageUrl.split("/services-image/")[1];
+      if (filePath) {
+        try {
+          await supabase.storage.from("services-image").remove([filePath]);
+        } catch (storageError) {
+          console.error("Failed to remove image from storage:", storageError);
+        }
+      }
+    }
+
     res.status(200).json({ message: "Service deleted successfully" });
   } catch (error) {
+    await client.query("ROLLBACK");
     console.error("Error deleting service:", error);
     res.status(500).json({ error: "Internal Server Error" });
+  } finally {
+    client.release();
   }
 });
 
