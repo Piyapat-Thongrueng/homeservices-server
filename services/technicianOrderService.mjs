@@ -82,7 +82,7 @@ const technicianOrderService = {
         )
       )) <= $2
 
-      ORDER BY distance_km ASC
+      ORDER BY o.created_at DESC
       `,
       [technicianId, radiusKm],
     );
